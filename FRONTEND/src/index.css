@@ -33,11 +33,14 @@ body {
 
 /* ── Glassmorphism ── */
 .glass-panel {
-  background: rgba(255, 255, 255, 0.60);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  box-shadow: 0 8px 32px rgba(31, 38, 135, 0.06);
+  background: rgba(15, 10, 8, 0.45);
+  backdrop-filter: blur(28px) saturate(1.6);
+  -webkit-backdrop-filter: blur(28px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+    0 1px 0 rgba(255, 255, 255, 0.08) inset;
 }
 .glass-surface {
   background: rgba(255, 248, 245, 0.85);
@@ -45,8 +48,17 @@ body {
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255,255,255,0.5);
 }
+.glass-panel-light {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.06),
+    0 0 0 1px rgba(255, 255, 255, 0.3) inset;
+}
 
-/* ── Indian Flag Gradient Border ── */
+/* ── Indian Flag Gradient Border (animated) ── */
 .flag-border {
   position: relative;
 }
@@ -55,14 +67,28 @@ body {
   position: absolute;
   inset: -1px;
   border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(45deg, #FF9933, #ffffff, #138808);
+  padding: 1.5px;
+  background: linear-gradient(
+    var(--flag-border-angle, 45deg),
+    rgba(255,153,51,0.7),
+    rgba(255,255,255,0.25),
+    rgba(19,136,8,0.7)
+  );
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
   z-index: 0;
+  animation: flag-border-rotate 6s linear infinite;
+}
+@keyframes flag-border-rotate {
+  to { --flag-border-angle: 405deg; }
+}
+@property --flag-border-angle {
+  syntax: '<angle>';
+  initial-value: 45deg;
+  inherits: false;
 }
 
 /* ── Neomorphism ── */
@@ -122,20 +148,28 @@ body {
 .ping-anim { animation: ping 1.4s cubic-bezier(0,0,0.2,1) infinite; }
 .spin-fast { animation: spin 1s linear infinite; }
 
-/* ── Gradient CTA Button ── */
+/* ── CTA Button ── */
 .btn-cta {
-  background: linear-gradient(135deg, #FF9933 0%, #C6A84B 50%, #138808 100%);
-  color: #fff;
+  position: relative;
+  appearance: none;
+  background: linear-gradient(135deg, #FF9933 0%, #E67A00 100%);
+  color: #ffffff;
+  font-family: 'Plus Jakarta Sans', sans-serif;
   font-weight: 700;
   border: none;
   cursor: pointer;
-  transition: box-shadow 0.25s, transform 0.15s;
+  box-shadow: 0 4px 16px rgba(255, 153, 51, 0.35);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 .btn-cta:hover {
-  box-shadow: 0 8px 30px rgba(255,153,51,0.55);
+  background: linear-gradient(135deg, #ffaa4d 0%, #ed850e 100%);
+  box-shadow: 0 6px 24px rgba(255, 153, 51, 0.45);
   transform: translateY(-2px);
 }
-.btn-cta:active { transform: scale(0.98); }
+.btn-cta:active {
+  transform: translateY(0) scale(0.98);
+  box-shadow: 0 2px 8px rgba(255, 153, 51, 0.3);
+}
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }

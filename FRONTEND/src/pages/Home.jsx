@@ -2,13 +2,13 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { AshokaChakra, Footer } from '../components/Layout'
 
 /* ── Frame sequence config ──────────────────────────────────────────── */
-const FRAME_COUNT  = 199          // frames 002 → 200
-const FRAME_START  = 2
+const FRAME_COUNT  = 208          // frames 001 → 208
+const FRAME_START  = 1
 const SCROLL_HEIGHT = '600vh'     // total sticky scroll distance
 
 function frameSrc(n) {
-  // Frames are in public/frames/ – zero-padded to 3 digits
-  return `/frames/${String(n).padStart(3, '0')}.png`
+  // Frames are in public/frames/ – ezgif-frame-XXX.jpg, zero-padded to 3 digits
+  return `/frames/ezgif-frame-${String(n).padStart(3, '0')}.jpg`
 }
 
 /* ── Scroll-phase text content ──────────────────────────────────────── */
@@ -89,14 +89,21 @@ export default function HomePage() {
     const img = imagesRef.current[idx]
     if (!img || !img.complete) return
     const ctx = canvas.getContext('2d')
-    canvas.width  = canvas.offsetWidth
-    canvas.height = canvas.offsetHeight
+    const dpr = window.devicePixelRatio || 1
+    const displayW = canvas.offsetWidth
+    const displayH = canvas.offsetHeight
+    // Scale canvas backing store for sharp rendering on high-DPI screens
+    canvas.width  = displayW * dpr
+    canvas.height = displayH * dpr
+    canvas.style.width  = displayW + 'px'
+    canvas.style.height = displayH + 'px'
+    ctx.scale(dpr, dpr)
     // cover-fit
-    const scale = Math.max(canvas.width / img.naturalWidth, canvas.height / img.naturalHeight)
+    const scale = Math.max(displayW / img.naturalWidth, displayH / img.naturalHeight)
     const sw = img.naturalWidth * scale
     const sh = img.naturalHeight * scale
-    const sx = (canvas.width  - sw) / 2
-    const sy = (canvas.height - sh) / 2
+    const sx = (displayW - sw) / 2
+    const sy = (displayH - sh) / 2
     ctx.drawImage(img, sx, sy, sw, sh)
   }, [])
 
@@ -265,7 +272,7 @@ export default function HomePage() {
         {/* Blurred Victoria bg layer */}
         <div style={{
           position: 'absolute', inset: 0,
-          backgroundImage: `url(${frameSrc(200)})`,
+          backgroundImage: `url(${frameSrc(208)})`,
           backgroundSize: 'cover', backgroundPosition: 'center',
           opacity: 0.08, filter: 'blur(6px)',
           pointerEvents: 'none',
@@ -545,7 +552,7 @@ function FeatureCard({ icon, color, title, desc }) {
   const [hov, setHov] = useState(false)
   return (
     <div
-      className="glass-panel flag-border"
+      className="glass-panel-light flag-border"
       style={{
         borderRadius: 20, padding: '32px 28px',
         transition: 'transform 0.2s, box-shadow 0.2s',
