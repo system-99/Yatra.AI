@@ -1,67 +1,204 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams, Link } from 'react-router-dom'
 import { Footer } from '../components/Layout'
 import { AshokaChakra } from '../components/Layout'
+import api from '../services/api'
+import { useTripWebSocket } from '../hooks/useTripWebSocket'
 
-const TIMELINE = [
-  {
-    day: 'Day 1',
-    title: 'Arrival in Jaipur',
-    date: 'Dec 15 • 10:00 AM – 08:00 PM',
-    status: 'completed',
-    desc: 'Welcome to the Pink City. Settle into the regal ambiance before an evening exploring the vibrant local bazaars.',
-    events: [
-      { icon: 'flight_land',  color: '#FF9933', title: 'Flight 6E-201 Arrives',    sub: 'Jaipur International Airport • 10:30 AM' },
-      { icon: 'castle',       color: '#C6A84B', title: 'Check-in: Rambagh Palace', sub: 'Luxury Suite • 12:00 PM' },
-      { icon: 'restaurant',   color: '#FF9933', title: 'Dinner: Suvarna Mahal',    sub: 'Royal Indian Cuisine • 08:00 PM' },
-    ],
-  },
-  {
-    day: 'Day 2',
-    title: 'Forts & Palaces',
-    date: 'TODAY • Dec 16',
-    status: 'active',
-    desc: 'A deep dive into the architectural marvels of the Rajput era, featuring the iconic Amber Fort and City Palace.',
-    events: [
-      { icon: 'directions_car', color: '#887364', title: 'Private Transfer to Amber Fort', sub: 'Chauffeured Sedan • 09:00 AM', done: true },
-      { icon: 'explore',        color: '#138808', title: 'Amber Fort Guided Tour',         sub: 'Happening Now • 10:00 AM – 01:00 PM', live: true },
-      { icon: 'local_dining',   color: '#FF9933', title: 'Lunch: 1135 AD',                sub: 'Inside Amber Fort • 01:30 PM' },
-    ],
-  },
-  {
-    day: 'Day 3',
-    title: 'Udaipur – City of Lakes',
-    date: 'Dec 17',
-    status: 'upcoming',
-    desc: 'Travel to Udaipur, the Venice of the East, for a sunset lake cruise and rooftop dinner.',
-    events: [
-      { icon: 'train',      color: '#000080', title: 'Jaipur → Udaipur Express', sub: 'Departs 07:00 AM • 5h 30m' },
-      { icon: 'water',      color: '#138808', title: 'Lake Pichola Sunset Cruise', sub: '05:00 PM' },
-      { icon: 'restaurant', color: '#FF9933', title: 'Rooftop Dinner at Ambrai', sub: '08:00 PM' },
-    ],
-  },
-]
+/* ── Category → icon mapping ─────────────────────────────────────────── */
+const CATEGORY_ICON = {
+  sightseeing: 'explore',
+  culture:     'museum',
+  food:        'restaurant',
+  dining:      'restaurant',
+  relaxation:  'spa',
+  nature:      'park',
+  transit:     'train',
+  shopping:    'shopping_bag',
+  default:     'place',
+}
+const CATEGORY_COLOR = {
+  sightseeing: '#FF9933',
+  culture:     '#C6A84B',
+  food:        '#FF9933',
+  dining:      '#FF9933',
+  relaxation:  '#138808',
+  nature:      '#138808',
+  transit:     '#000080',
+  shopping:    '#C6A84B',
+  default:     '#887364',
+}
 
-const FEED = [
-  { type: 'warning', icon: 'warning',     color: '#FF9933', title: 'WEATHER ALERT',    time: 'Just now',   msg: 'Heavy fog in Jaisalmer. AI suggests delaying tomorrow\'s departure by 2 hours for better visibility.' },
-  { type: 'success', icon: 'auto_awesome',color: '#138808', title: 'ROUTE OPTIMIZED',  time: '45m ago',    msg: 'Flight 6E-201 was delayed. Automatically re-routed airport transfer to avoid peak traffic.' },
-  { type: 'info',    icon: 'info',        color: '#000080', title: 'CULTURAL CONTEXT', time: '2h ago',     msg: 'The Amber Fort is built from pale yellow sandstone. Look for the Diwan-e-Khas mirror hall.' },
+/* ── Disruption types ────────────────────────────────────────────────── */
+const DISRUPTION_TYPES = [
+  { value: 'weather',       label: '🌧️ Bad Weather' },
+  { value: 'venue_closure', label: '🚫 Venue Closed' },
+  { value: 'delay',         label: '⏱️ Delay / Traffic' },
+  { value: 'fatigue',       label: '😴 Fatigue' },
+  { value: 'budget',        label: '💸 Budget Change' },
+  { value: 'custom',        label: '⚙️ Custom' },
 ]
 
 export default function ItineraryPage() {
-  const [feedItems, setFeedItems] = useState(FEED)
-  const [replanning, setReplanning] = useState(false)
+  const [searchParams] = useSearchParams()
+  const tripId = searchParams.get('tripId')
 
-  const replan = () => {
-    setReplanning(true)
-    setTimeout(() => {
-      setReplanning(false)
+  const [tripDetail, setTripDetail]     = useState(null)
+  const [loading, setLoading]           = useState(true)
+  const [error, setError]               = useState(null)
+  const [feedItems, setFeedItems]       = useState([])
+  const [replanning, setReplanning]     = useState(false)
+  const [replanError, setReplanError]   = useState(null)
+
+  /* Disruption form */
+  const [showDisruptionForm, setShowDisruptionForm] = useState(false)
+  const [disruptionType, setDisruptionType]         = useState('weather')
+  const [disruptionDesc, setDisruptionDesc]         = useState('')
+  const [disruptionDay,  setDisruptionDay]          = useState(1)
+
+  /* ── Fetch trip detail ─────────────────────────────────────────────── */
+  const fetchTrip = useCallback(async () => {
+    if (!tripId) return
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await api.getTripDetail(tripId)
+      setTripDetail(data)
+
+      // Seed feed with any existing disruption history
+      if (data.disruptions && data.disruptions.length > 0) {
+        const historyItems = data.disruptions.map(d => ({
+          type: 'success',
+          icon: 'auto_awesome',
+          color: '#138808',
+          title: `${d.disruption_type.toUpperCase().replace('_', ' ')} REPLANNED`,
+          time: new Date(d.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          msg: d.replan_explanation || d.impact_summary || 'Itinerary was replanned.',
+        }))
+        setFeedItems(historyItems)
+      }
+    } catch (err) {
+      console.error('Failed to fetch trip:', err)
+      if (err.status === 404 || err.message.includes('Trip not found') || err.message.includes('404')) {
+        setError(`Trip #${tripId} not found. Please create a new trip.`)
+      } else if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        setError('Cannot connect to the server. Please make sure the backend is running.')
+      } else {
+        setError(err.message || 'Failed to load itinerary.')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [tripId])
+
+  useEffect(() => {
+    if (tripId) {
+      fetchTrip()
+    } else {
+      setLoading(false)
+      setError('No trip selected. Please create a trip from the home page.')
+    }
+  }, [tripId, fetchTrip])
+
+  /* ── WebSocket live updates ────────────────────────────────────────── */
+  const handleWebSocketEvent = useCallback((event) => {
+    if (event.event === 'itinerary_replanned') {
       setFeedItems(prev => [{
-        type: 'success', icon: 'sync', color: '#138808',
-        title: 'ITINERARY REPLANNED', time: 'Just now',
-        msg: 'AI has successfully generated an optimized itinerary based on current conditions.',
+        type: 'success',
+        icon: 'sync',
+        color: '#138808',
+        title: 'LIVE REPLAN RECEIVED',
+        time: 'Just now',
+        msg: event.explanation || 'Itinerary was dynamically replanned.',
+        changes: event.changes_summary || [],
       }, ...prev])
-    }, 2200)
+      // Reload fresh itinerary data
+      fetchTrip()
+    } else if (event.event === 'pong') {
+      // Keep-alive pong — ignore silently
+    }
+  }, [fetchTrip])
+
+  const { connected } = useTripWebSocket(tripId ? parseInt(tripId) : null, handleWebSocketEvent)
+
+  /* ── Manual replan ─────────────────────────────────────────────────── */
+  const handleReplan = async (e) => {
+    e.preventDefault()
+    if (replanning || !tripId) return
+    setReplanning(true)
+    setReplanError(null)
+
+    try {
+      const result = await api.replanTrip(tripId, {
+        disruption_type: disruptionType,
+        description: disruptionDesc || `Disruption: ${disruptionType}`,
+        affected_day: disruptionDay || null,
+      })
+
+      // Add to feed
+      setFeedItems(prev => [{
+        type: 'success',
+        icon: 'auto_awesome',
+        color: '#138808',
+        title: 'ITINERARY REPLANNED',
+        time: 'Just now',
+        msg: result.explanation || 'Itinerary successfully updated.',
+        changes: result.changes_summary || [],
+      }, ...prev])
+
+      // Reload fresh data
+      await fetchTrip()
+      setShowDisruptionForm(false)
+      setDisruptionDesc('')
+    } catch (err) {
+      console.error('Replan failed:', err)
+      setReplanError(err.message || 'Replanning failed. Please try again.')
+    } finally {
+      setReplanning(false)
+    }
   }
+
+  /* ── Derived stats ─────────────────────────────────────────────────── */
+  const totalDays      = tripDetail?.total_days || 0
+  const totalCost      = tripDetail?.total_estimated_cost || 0
+  const budgetUsedPct  = tripDetail ? Math.min(100, Math.round((totalCost / tripDetail.budget) * 100)) : 0
+
+  /* ── Render helpers ────────────────────────────────────────────────── */
+  if (loading) {
+    return (
+      <div className="page-content" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '80vh', gap: 20 }}>
+        <div style={{ position: 'relative' }}>
+          <AshokaChakra size={100} opacity={0.7} />
+        </div>
+        <p style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: 22, color: 'var(--primary)' }}>
+          Loading your itinerary…
+        </p>
+        <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: 'var(--outline)' }}>
+          Trip #{tripId}
+        </p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="page-content" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '80vh', gap: 20, padding: '40px' }}>
+        <span className="material-symbols-outlined" style={{ fontSize: 56, color: 'var(--error)' }}>error_outline</span>
+        <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: 28, color: 'var(--error)', textAlign: 'center' }}>
+          {error}
+        </h2>
+        <Link to="/" className="btn-cta" style={{ padding: '14px 32px', borderRadius: 12, fontSize: 16, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 20 }}>arrow_back</span>
+          Plan a New Trip
+        </Link>
+      </div>
+    )
+  }
+
+  if (!tripDetail) return null
+
+  const trip = tripDetail
+  const days = trip.days || []
 
   return (
     <>
@@ -72,21 +209,21 @@ export default function ItineraryPage() {
           <header style={{
             borderRadius: 16, overflow: 'hidden',
             height: 280, position: 'relative', marginBottom: 28,
-            backgroundImage: 'url(https://lh3.googleusercontent.com/aida-public/AB6AXuBlrg3hWB4P1yhRBticQLiNCCAYJV3OtxPoWGMNNuximSEwj9AYfuC97DvECVEwkeaiC4rRgcYv846QnI3x-080D0AQcSPPWZUcr7BPjuz3zD4PZcDiwCAzSNTJ0-VQBlUkc2x7FNob6Wu9VTgJin7zL8BdOmQJVPA8Cg150OlKNIT-Ip2luClt0tvAeh1QcN8Vsrlma6t8Ljpw3GTG3ZDzvuP-GP-4JfJO3ObvhialCEk6cl08q3JjgQ)',
-            backgroundSize: 'cover', backgroundPosition: 'center',
+            background: 'linear-gradient(135deg, #1a0f07 0%, #3d2010 100%)',
             boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
           }}>
             <div style={{
               position: 'absolute', inset: 0,
-              background: 'linear-gradient(to top, rgba(35,26,19,0.85) 0%, rgba(35,26,19,0.2) 100%)',
+              background: 'linear-gradient(to top, rgba(35,26,19,0.9) 0%, rgba(35,26,19,0.2) 100%)',
             }} />
+            {/* Background Chakra watermark */}
+            <div style={{ position: 'absolute', top: '50%', right: '-60px', transform: 'translateY(-50%)', pointerEvents: 'none', opacity: 0.06 }}>
+              <AshokaChakra size={320} opacity={1} />
+            </div>
             <div style={{
               position: 'absolute', bottom: 0, left: 0, right: 0,
               padding: '24px 32px',
               display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
-              background: 'rgba(255,248,245,0.18)',
-              backdropFilter: 'blur(12px)',
-              borderTop: '1px solid rgba(255,255,255,0.2)',
             }}>
               <div>
                 <span style={{
@@ -95,36 +232,39 @@ export default function ItineraryPage() {
                   borderRadius: 999, fontSize: 11, fontWeight: 700,
                   color: '#FF9933', letterSpacing: '0.1em', textTransform: 'uppercase',
                   marginBottom: 10,
-                }}>12-Day Heritage Journey</span>
+                }}>{totalDays}-Day Journey</span>
                 <h1 style={{
                   fontFamily: 'Cormorant Garamond, serif',
                   fontSize: 40, fontWeight: 700, color: '#fff',
                   textShadow: '0 2px 8px rgba(0,0,0,0.4)', lineHeight: 1.15,
-                }}>The Grand Rajputana<br/>Heritage Trail</h1>
+                }}>{trip.destination}</h1>
                 <p style={{
                   fontFamily: 'JetBrains Mono, monospace',
                   fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 8,
                   display: 'flex', alignItems: 'center', gap: 6,
                 }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>calendar_month</span>
-                  Dec 15 – Dec 27
+                  {trip.start_date} – {trip.end_date}
                 </p>
               </div>
+              {/* Live/WS status indicator */}
               <div className="neo-raised" style={{
                 display: 'flex', alignItems: 'center', gap: 8,
                 padding: '8px 20px', borderRadius: 999,
               }}>
                 <span style={{
                   width: 10, height: 10, borderRadius: '50%',
-                  background: '#138808', display: 'inline-block',
-                  boxShadow: '0 0 0 3px rgba(19,136,8,0.25)',
+                  background: connected ? '#138808' : '#FF9933',
+                  display: 'inline-block',
+                  boxShadow: connected ? '0 0 0 3px rgba(19,136,8,0.25)' : '0 0 0 3px rgba(255,153,51,0.25)',
                   animation: 'ping 1.4s ease-in-out infinite',
                 }} />
                 <span style={{
                   fontFamily: 'JetBrains Mono, monospace',
                   fontSize: 11, fontWeight: 700,
-                  color: '#138808', letterSpacing: '0.1em', textTransform: 'uppercase',
-                }}>LIVE STATUS: ACTIVE</span>
+                  color: connected ? '#138808' : '#FF9933',
+                  letterSpacing: '0.1em', textTransform: 'uppercase',
+                }}>{connected ? 'LIVE: CONNECTED' : 'LIVE: RECONNECTING'}</span>
               </div>
             </div>
           </header>
@@ -132,10 +272,10 @@ export default function ItineraryPage() {
           {/* ── Stats tiles ── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 18, marginBottom: 28 }}>
             {[
-              { icon: 'route',                   color: '#FF9933', label: 'DISTANCE COVERED', value: '845 / 1250 km' },
-              { icon: 'account_balance_wallet',  color: '#C6A84B', label: 'BUDGET SPENT',      value: '₹1.2L / ₹1.8L' },
-              { icon: 'auto_awesome',            color: '#000080', label: 'AI ADJUSTMENTS',    value: '4 Optimizations', spin: true },
-              { icon: 'location_on',             color: '#138808', label: 'NEXT STOP',         value: 'Udaipur' },
+              { icon: 'calendar_view_week',      color: '#FF9933', label: 'TOTAL DAYS',       value: `${totalDays} Days` },
+              { icon: 'account_balance_wallet',  color: '#C6A84B', label: 'ESTIMATED COST',   value: `₹${totalCost.toLocaleString('en-IN')}` },
+              { icon: 'savings',                 color: '#000080', label: 'BUDGET',           value: `₹${Number(trip.budget).toLocaleString('en-IN')}` },
+              { icon: 'auto_awesome',            color: '#138808', label: 'AI ADJUSTMENTS',  value: `${trip.disruptions?.length || 0} Replans`, spin: true },
             ].map(t => (
               <div key={t.label} className="neo-raised" style={{
                 padding: '20px', borderRadius: 14,
@@ -173,46 +313,51 @@ export default function ItineraryPage() {
                 marginBottom: 24,
               }}>Itinerary Timeline</h2>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 20, position: 'relative' }}>
-                {TIMELINE.map((day, di) => (
-                  <DayCard key={day.day} day={day} isLast={di === TIMELINE.length - 1} />
-                ))}
-              </div>
+              {days.length === 0 ? (
+                <div className="neo-raised" style={{ borderRadius: 16, padding: '40px', textAlign: 'center' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 48, color: 'var(--outline)', marginBottom: 16, display: 'block' }}>calendar_today</span>
+                  <p style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: 22, color: 'var(--on-surface-variant)' }}>
+                    No activities yet
+                  </p>
+                  <p style={{ fontSize: 14, color: 'var(--outline)', marginTop: 8 }}>
+                    The itinerary is being generated. Please wait or refresh.
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20, position: 'relative' }}>
+                  {days.map((day, di) => (
+                    <DayCard key={day.day_number} day={day} isLast={di === days.length - 1} />
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Right: AI Sidebar */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
 
-              {/* Weather widget */}
+              {/* Budget progress */}
               <div className="glass-surface" style={{ borderRadius: 16, padding: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span className="material-symbols-outlined" style={{ color: '#FF9933' }}>partly_cloudy_day</span>
-                    <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, fontWeight: 700, color: 'var(--on-surface-variant)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>LIVE WEATHER</span>
+                    <span className="material-symbols-outlined" style={{ color: '#C6A84B' }}>account_balance_wallet</span>
+                    <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, fontWeight: 700, color: 'var(--on-surface-variant)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>BUDGET TRACKER</span>
                   </div>
-                  <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 700, color: 'var(--primary)' }}>Jaipur, RJ</span>
+                  <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, fontWeight: 700, color: budgetUsedPct > 90 ? 'var(--error)' : 'var(--primary)' }}>
+                    {budgetUsedPct}% used
+                  </span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 16, borderBottom: '1px solid rgba(143,78,0,0.12)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 52, color: '#FF9933' }}>sunny</span>
-                    <div>
-                      <div style={{ fontSize: 36, fontWeight: 700, color: 'var(--on-surface)' }}>32°C</div>
-                      <div style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Feels like 34°C</div>
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontWeight: 600, color: '#138808', fontSize: 14 }}>Clear Skies</div>
-                    <div style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'var(--on-surface-variant)' }}>Perfect for sightseeing</div>
-                  </div>
+                <div style={{ height: 8, borderRadius: 999, background: 'rgba(143,78,0,0.1)', overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${budgetUsedPct}%`,
+                    borderRadius: 999,
+                    background: budgetUsedPct > 90 ? 'var(--error)' : budgetUsedPct > 70 ? '#FF9933' : '#138808',
+                    transition: 'width 0.5s ease',
+                  }} />
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginTop: 14 }}>
-                  {[{ d: 'TOM', i: 'sunny', t: '31°' }, { d: 'WED', i: 'cloud', t: '29°' }, { d: 'THU', i: 'sunny', t: '33°' }].map(w => (
-                    <div key={w.d} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--on-surface-variant)', letterSpacing: '0.1em' }}>{w.d}</span>
-                      <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#FF9933' }}>{w.i}</span>
-                      <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 700 }}>{w.t}</span>
-                    </div>
-                  ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+                  <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--outline)' }}>₹{totalCost.toLocaleString('en-IN')} est.</span>
+                  <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--outline)' }}>₹{Number(trip.budget).toLocaleString('en-IN')} budget</span>
                 </div>
               </div>
 
@@ -236,56 +381,137 @@ export default function ItineraryPage() {
                   </span>
                   <span style={{
                     width: 8, height: 8, borderRadius: '50%',
-                    background: '#138808', display: 'inline-block',
-                    boxShadow: '0 0 0 3px rgba(19,136,8,0.25)',
+                    background: connected ? '#138808' : '#FF9933',
+                    display: 'inline-block',
+                    boxShadow: connected ? '0 0 0 3px rgba(19,136,8,0.25)' : '0 0 0 3px rgba(255,153,51,0.25)',
                   }} />
                 </div>
 
-                <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {feedItems.map((item, i) => (
-                    <div key={i} className={`neo-raised alert-${item.type === 'warning' ? 'saffron' : item.type === 'success' ? 'green' : 'blue'}`}
-                      style={{ borderRadius: 10, padding: '14px' }}>
-                      <div style={{ display: 'flex', gap: 10 }}>
-                        <span className="material-symbols-outlined" style={{ color: item.color, fontSize: 20, marginTop: 2 }}>{item.icon}</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                            <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, fontWeight: 700, color: item.color, letterSpacing: '0.08em' }}>{item.title}</span>
-                            <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: 'var(--on-surface-variant)' }}>{item.time}</span>
-                          </div>
-                          <p style={{ fontSize: 13, color: 'var(--on-surface)', lineHeight: 1.5 }}>{item.msg}</p>
-                          {item.type === 'warning' && (
-                            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                              <button className="btn-cta" style={{ padding: '5px 14px', borderRadius: 6, fontSize: 12 }}>Accept Delay</button>
-                              <button className="neo-raised" style={{
-                                border: 'none', padding: '5px 14px', borderRadius: 6,
-                                fontSize: 12, cursor: 'pointer', color: 'var(--on-surface)',
-                              }}>Ignore</button>
+                <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 400, overflowY: 'auto' }}>
+                  {feedItems.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '20px', color: 'var(--outline)' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 32, display: 'block', marginBottom: 8 }}>notifications_none</span>
+                      <p style={{ fontSize: 13 }}>No alerts yet. Your trip is running smoothly!</p>
+                    </div>
+                  ) : (
+                    feedItems.map((item, i) => (
+                      <div key={i} className={`neo-raised alert-${item.type === 'warning' ? 'saffron' : item.type === 'success' ? 'green' : 'blue'}`}
+                        style={{ borderRadius: 10, padding: '14px' }}>
+                        <div style={{ display: 'flex', gap: 10 }}>
+                          <span className="material-symbols-outlined" style={{ color: item.color, fontSize: 20, marginTop: 2 }}>{item.icon}</span>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, fontWeight: 700, color: item.color, letterSpacing: '0.08em' }}>{item.title}</span>
+                              <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: 'var(--on-surface-variant)' }}>{item.time}</span>
                             </div>
-                          )}
+                            <p style={{ fontSize: 13, color: 'var(--on-surface)', lineHeight: 1.5 }}>{item.msg}</p>
+                            {item.changes && item.changes.length > 0 && (
+                              <ul style={{ marginTop: 8, paddingLeft: 16 }}>
+                                {item.changes.map((c, ci) => (
+                                  <li key={ci} style={{ fontSize: 12, color: 'var(--on-surface-variant)', lineHeight: 1.5 }}>{c}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
 
+                {/* Disruption form */}
+                {showDisruptionForm && (
+                  <form onSubmit={handleReplan} style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ borderTop: '1px solid rgba(143,78,0,0.12)', paddingTop: 14 }}>
+                      <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, fontWeight: 700, color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+                        Report Disruption
+                      </p>
+                      <select
+                        value={disruptionType}
+                        onChange={e => setDisruptionType(e.target.value)}
+                        style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(143,78,0,0.2)', fontSize: 13, background: 'var(--surface)', color: 'var(--on-surface)', marginBottom: 8 }}
+                      >
+                        {DISRUPTION_TYPES.map(dt => (
+                          <option key={dt.value} value={dt.value}>{dt.label}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        placeholder="Describe the disruption…"
+                        value={disruptionDesc}
+                        onChange={e => setDisruptionDesc(e.target.value)}
+                        style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(143,78,0,0.2)', fontSize: 13, background: 'var(--surface)', color: 'var(--on-surface)', marginBottom: 8 }}
+                      />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <label style={{ fontSize: 12, color: 'var(--on-surface-variant)', whiteSpace: 'nowrap' }}>Affected Day:</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={totalDays || 99}
+                          value={disruptionDay}
+                          onChange={e => setDisruptionDay(parseInt(e.target.value))}
+                          style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(143,78,0,0.2)', fontSize: 13, background: 'var(--surface)', color: 'var(--on-surface)' }}
+                        />
+                      </div>
+                      {replanError && (
+                        <p style={{ fontSize: 12, color: 'var(--error)', marginBottom: 8 }}>{replanError}</p>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button type="button" onClick={() => { setShowDisruptionForm(false); setReplanError(null) }}
+                        className="neo-raised"
+                        style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', fontSize: 13, cursor: 'pointer', color: 'var(--on-surface-variant)' }}>
+                        Cancel
+                      </button>
+                      <button type="submit" disabled={replanning} className="btn-cta"
+                        style={{ flex: 2, padding: '10px', borderRadius: 8, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        {replanning ? (
+                          <><span className="material-symbols-outlined spin-fast" style={{ fontSize: 16 }}>sync</span>Replanning…</>
+                        ) : (
+                          <><span className="material-symbols-outlined" style={{ fontSize: 16 }}>auto_fix_high</span>Replan Now</>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
                 {/* Action buttons */}
-                <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <button className="btn-cta" style={{
                     width: '100%', padding: '14px', borderRadius: 10, fontSize: 15,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                  }} onClick={replan}>
+                  }} onClick={() => { setShowDisruptionForm(v => !v); setReplanError(null) }}>
                     <span className={`material-symbols-outlined ${replanning ? 'spin-fast' : ''}`} style={{ fontSize: 20 }}>sync</span>
-                    {replanning ? 'Replanning…' : 'Replan My Trip'}
+                    {showDisruptionForm ? 'Hide Form' : 'Replan My Trip'}
                   </button>
-                  <button className="neo-raised" style={{
+                  <Link to="/" className="neo-raised" style={{
                     width: '100%', padding: '14px', borderRadius: 10, fontSize: 15, fontWeight: 700,
                     border: '2px solid #000080', color: '#000080', background: 'transparent',
                     cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    textDecoration: 'none',
                   }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 20 }}>download</span>
-                    Export Itinerary
-                  </button>
+                    <span className="material-symbols-outlined" style={{ fontSize: 20 }}>add_circle</span>
+                    New Trip
+                  </Link>
                 </div>
+              </div>
+
+              {/* Trip info card */}
+              <div className="glass-surface" style={{ borderRadius: 16, padding: 20 }}>
+                <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, fontWeight: 700, color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>Trip Details</p>
+                {[
+                  { icon: 'location_on', label: 'Destination', value: trip.destination },
+                  { icon: 'speed', label: 'Pace', value: trip.pace.charAt(0).toUpperCase() + trip.pace.slice(1) },
+                  { icon: 'interests', label: 'Interests', value: (trip.interests || []).join(', ') || 'General' },
+                ].map(info => (
+                  <div key={info.label} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
+                    <span className="material-symbols-outlined" style={{ color: 'var(--primary)', fontSize: 18, marginTop: 2, flexShrink: 0 }}>{info.icon}</span>
+                    <div>
+                      <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: 'var(--outline)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{info.label}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--on-surface)', marginTop: 2 }}>{info.value}</div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -296,9 +522,13 @@ export default function ItineraryPage() {
   )
 }
 
-function DayCard({ day }) {
-  const isActive    = day.status === 'active'
-  const isCompleted = day.status === 'completed'
+function DayCard({ day, isLast }) {
+  const [expanded, setExpanded] = useState(true)
+  const today = new Date().toISOString().split('T')[0]
+  const isToday = day.date === today
+  const isActive = isToday
+  const isCompleted = day.date && day.date < today
+
   return (
     <div className="flag-border" style={{
       borderRadius: 16, padding: 1,
@@ -315,72 +545,105 @@ function DayCard({ day }) {
             <h3 style={{
               fontFamily: 'Cormorant Garamond, serif',
               fontSize: 24, fontWeight: 600, color: 'var(--on-surface)',
-            }}>{day.day}: {day.title}</h3>
+            }}>Day {day.day_number}: {day.theme || `Exploring`}</h3>
             <p style={{
               fontFamily: 'JetBrains Mono, monospace',
               fontSize: 12, fontWeight: 700, marginTop: 4,
               color: isActive ? '#138808' : 'var(--on-surface-variant)',
-            }}>{day.date}</p>
+            }}>{isToday ? 'TODAY • ' : ''}{day.date || ''}</p>
           </div>
-          <span style={{
-            padding: '5px 14px', borderRadius: 999, fontSize: 11, fontWeight: 700,
-            fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.06em',
-            display: 'flex', alignItems: 'center', gap: 6,
-            ...(isCompleted
-              ? { background: 'rgba(19,136,8,0.1)', color: '#138808', border: '1px solid rgba(19,136,8,0.3)' }
-              : isActive
-              ? { background: 'rgba(255,153,51,0.1)', color: '#FF9933', border: '1px solid rgba(255,153,51,0.3)' }
-              : { background: 'rgba(143,115,100,0.1)', color: 'var(--outline)', border: '1px solid var(--outline-variant)' }
-            ),
-          }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-              {isCompleted ? 'check_circle' : isActive ? 'directions_walk' : 'schedule'}
-            </span>
-            {isCompleted ? 'Completed' : isActive ? 'In Progress' : 'Upcoming'}
-          </span>
-        </div>
-        <p style={{ fontSize: 14, color: 'var(--on-surface-variant)', marginBottom: 18, lineHeight: 1.6 }}>{day.desc}</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {day.events.map((ev, i) => (
-            <div key={i} className={ev.live ? '' : 'neo-inset'} style={{
-              borderRadius: 10, padding: '14px',
-              display: 'flex', alignItems: 'center', gap: 14,
-              ...(ev.live ? {
-                background: 'rgba(19,136,8,0.06)',
-                border: '1px solid rgba(19,136,8,0.25)',
-                borderLeft: '4px solid #138808',
-              } : {}),
-              opacity: ev.done ? 0.55 : 1,
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{
+              padding: '5px 14px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+              fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.06em',
+              display: 'flex', alignItems: 'center', gap: 6,
+              ...(isCompleted
+                ? { background: 'rgba(19,136,8,0.1)', color: '#138808', border: '1px solid rgba(19,136,8,0.3)' }
+                : isActive
+                ? { background: 'rgba(255,153,51,0.1)', color: '#FF9933', border: '1px solid rgba(255,153,51,0.3)' }
+                : { background: 'rgba(143,115,100,0.1)', color: 'var(--outline)', border: '1px solid var(--outline-variant)' }
+              ),
             }}>
-              <div style={{
-                width: 36, height: 36, borderRadius: 8,
-                background: ev.live ? 'rgba(19,136,8,0.12)' : 'rgba(255,255,255,0.7)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: '2px 2px 6px rgba(0,0,0,0.06)',
-              }}>
-                <span className="material-symbols-outlined" style={{ color: ev.color, fontSize: 20 }}>{ev.icon}</span>
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{
-                  fontWeight: 600, fontSize: 14, color: 'var(--on-surface)',
-                  textDecoration: ev.done ? 'line-through' : 'none',
-                }}>{ev.title}</div>
-                <div style={{
-                  fontFamily: 'JetBrains Mono, monospace',
-                  fontSize: 12,
-                  color: ev.live ? '#138808' : 'var(--on-surface-variant)',
-                  fontWeight: ev.live ? 700 : 400,
-                  marginTop: 2,
-                }}>{ev.sub}</div>
-              </div>
-              {ev.live && (
-                <button className="btn-cta" style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12 }}>
-                  View Tickets
-                </button>
-              )}
-            </div>
-          ))}
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                {isCompleted ? 'check_circle' : isActive ? 'directions_walk' : 'schedule'}
+              </span>
+              {isCompleted ? 'Completed' : isActive ? 'In Progress' : 'Upcoming'}
+            </span>
+            <button onClick={() => setExpanded(v => !v)} style={{
+              width: 32, height: 32, borderRadius: '50%', border: 'none', cursor: 'pointer',
+              background: 'rgba(143,78,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--outline)' }}>
+                {expanded ? 'expand_less' : 'expand_more'}
+              </span>
+            </button>
+          </div>
         </div>
+
+        {expanded && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
+            {(day.activities || []).map((act) => (
+              <ActivityRow key={act.id} act={act} />
+            ))}
+            {(!day.activities || day.activities.length === 0) && (
+              <p style={{ fontSize: 13, color: 'var(--outline)', fontStyle: 'italic', padding: '8px 0' }}>No activities for this day yet.</p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ActivityRow({ act }) {
+  const icon  = CATEGORY_ICON[act.category] || CATEGORY_ICON.default
+  const color = CATEGORY_COLOR[act.category] || CATEGORY_COLOR.default
+  const isReplaced = act.status === 'replaced'
+  const isAdjusted = act.status === 'adjusted'
+  const isCancelled = act.status === 'cancelled'
+
+  return (
+    <div className="neo-inset" style={{
+      borderRadius: 10, padding: '14px',
+      display: 'flex', alignItems: 'center', gap: 14,
+      opacity: isCancelled ? 0.45 : 1,
+      borderLeft: isReplaced ? '4px solid #138808' : isAdjusted ? '4px solid #FF9933' : undefined,
+    }}>
+      <div style={{
+        width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+        background: `${color}18`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: '2px 2px 6px rgba(0,0,0,0.06)',
+      }}>
+        <span className="material-symbols-outlined" style={{ color, fontSize: 20 }}>{icon}</span>
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{
+          fontWeight: 600, fontSize: 14, color: 'var(--on-surface)',
+          textDecoration: isCancelled ? 'line-through' : 'none',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          {act.title}
+          {(isReplaced || isAdjusted) && (
+            <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: isReplaced ? 'rgba(19,136,8,0.1)' : 'rgba(255,153,51,0.1)', color: isReplaced ? '#138808' : '#FF9933', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>
+              {isReplaced ? 'REPLACED' : 'ADJUSTED'}
+            </span>
+          )}
+        </div>
+        <div style={{
+          fontFamily: 'JetBrains Mono, monospace',
+          fontSize: 11,
+          color: 'var(--on-surface-variant)',
+          marginTop: 3, display: 'flex', gap: 12, flexWrap: 'wrap',
+        }}>
+          <span>{act.time_slot}</span>
+          {act.location && <span>📍 {act.location}</span>}
+          {act.estimated_cost > 0 && <span>₹{act.estimated_cost.toLocaleString('en-IN')}</span>}
+          {act.is_weather_sensitive && <span title="Weather sensitive">🌦️</span>}
+        </div>
+        {act.description && (
+          <p style={{ fontSize: 12, color: 'var(--outline)', marginTop: 4, lineHeight: 1.5 }}>{act.description}</p>
+        )}
       </div>
     </div>
   )

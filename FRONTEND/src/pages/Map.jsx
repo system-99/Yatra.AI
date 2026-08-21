@@ -1,25 +1,65 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams, Link } from 'react-router-dom'
 import { Footer } from '../components/Layout'
 import { AshokaChakra } from '../components/Layout'
-
-const TIMELINE_STOPS = [
-  { time: '09:00 AM', name: 'Dakshineswar Kali Temple', desc: 'Morning Darshan & Architecture tour.', done: true },
-  { time: '11:30 AM', name: 'Victoria Memorial',        desc: '2.5 km · 30 mins', active: true, progress: 33 },
-  { time: '01:30 PM', name: 'Peter Cat',                desc: 'Lunch Reservation (Chelo Kebab).' },
-  { time: '03:00 PM', name: 'Indian Museum',            desc: 'Heritage walk through ancient artifacts.' },
-]
+import api from '../services/api'
 
 const FILTERS = ['Hotels', 'Dining', 'Transit', 'Heritage', 'All']
 
+/* Category → filter group */
+const CAT_TO_FILTER = {
+  food:        'Dining',
+  dining:      'Dining',
+  transit:     'Transit',
+  culture:     'Heritage',
+  sightseeing: 'Heritage',
+  nature:      'Heritage',
+  relaxation:  'Hotels',
+  shopping:    'Heritage',
+}
+
 export default function MapPage() {
+  const [searchParams] = useSearchParams()
+  const tripId = searchParams.get('tripId')
+
   const [showPivot, setShowPivot] = useState(false)
-  const [filter, setFilter] = useState('All')
+  const [filter, setFilter]       = useState('All')
+  const [tripDetail, setTripDetail] = useState(null)
+  const [loading, setLoading]       = useState(false)
+  const [selectedActivity, setSelectedActivity] = useState(null)
+
+  /* Fetch trip if tripId is available */
+  useEffect(() => {
+    if (!tripId) return
+    let cancelled = false
+    setLoading(true)
+    api.getTripDetail(tripId)
+      .then(data => { if (!cancelled) { setTripDetail(data) } })
+      .catch(err => console.warn('Map: Could not load trip data:', err.message))
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [tripId])
+
+  /* Flatten all activities into one list for the timeline */
+  const allActivities = (tripDetail?.days || []).flatMap(d =>
+    (d.activities || []).map(a => ({ ...a, day_number: d.day_number, date: d.date }))
+  )
+
+  /* Apply filter */
+  const filteredActivities = filter === 'All'
+    ? allActivities
+    : allActivities.filter(a => (CAT_TO_FILTER[a.category] || 'Heritage') === filter)
+
+  /* Active activity = first one today, else first in list */
+  const today = new Date().toISOString().split('T')[0]
+  const todayActs = allActivities.filter(a => a.date === today)
+  const activeAct = selectedActivity || todayActs[0] || allActivities[0] || null
 
   return (
     <>
       <div className="page-content" style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-          {/* Map background */}
+          {/* Map background (decorative dot-grid placeholder) */}
           <div style={{
             position: 'absolute', inset: 0,
             backgroundColor: '#e8d7cb',
@@ -27,7 +67,7 @@ export default function MapPage() {
             backgroundSize: '22px 22px',
           }} />
 
-          {/* SVG route overlay */}
+          {/* SVG route overlay — decorative */}
           <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 1 }}>
             <defs>
               <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
@@ -47,10 +87,26 @@ export default function MapPage() {
             />
           </svg>
 
-          {/* Map markers */}
-          <MapMarker top={280} left={320} type="heritage" label="Victoria Memorial" icon="account_balance" color="#FF9933" />
-          <MapMarker top={330} left={820} type="current" label="Current: Park Street" color="#138808" pulse />
-          <MapMarker top={430} left={1120} type="dining" label="Dinner Reservation" icon="restaurant" />
+          {/* Map markers use itinerary activities when the backend provides them. */}
+          {allActivities.length > 0 ? (
+            allActivities.slice(0, 3).map((act, i) => {
+              // Distribute markers across the screen for visual effect
+              const tops  = [280, 330, 430]
+              const lefts = [320, 820, 1120]
+              return (
+                <MapMarker
+                  key={act.id}
+                  top={tops[i] || 280 + i * 60}
+                  left={lefts[i] || 320 + i * 200}
+                  label={act.title}
+                  icon="place"
+                  color={act.date === today ? '#138808' : '#FF9933'}
+                  pulse={act.date === today}
+                  onClick={() => setSelectedActivity(act)}
+                />
+              )
+            })
+          ) : null}
 
           {/* Left sidebar: Timeline */}
           <aside style={{
@@ -81,70 +137,96 @@ export default function MapPage() {
             <div className="glass-surface" style={{
               flex: 1, borderRadius: 16, padding: 18,
               display: 'flex', flexDirection: 'column', overflow: 'hidden',
-              borderImage: 'linear-gradient(45deg,#FF9933,#fff,#138808) 1',
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid rgba(143,78,0,0.12)' }}>
-                <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: 20, fontWeight: 700, color: 'var(--primary)' }}>Kolkata Heritage Tour</h2>
-                <span style={{
-                  padding: '3px 10px', borderRadius: 4, background: 'rgba(141,252,117,0.2)',
-                  color: '#138808', fontFamily: 'JetBrains Mono, monospace', fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
-                }}>Active</span>
+                <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: 20, fontWeight: 700, color: 'var(--primary)' }}>
+                  {tripDetail ? tripDetail.destination : 'Live Map'}
+                </h2>
+                {tripDetail && (
+                  <span style={{
+                    padding: '3px 10px', borderRadius: 4, background: 'rgba(141,252,117,0.2)',
+                    color: '#138808', fontFamily: 'JetBrains Mono, monospace', fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+                  }}>Active</span>
+                )}
               </div>
 
-              <div style={{ flex: 1, overflowY: 'auto', position: 'relative' }}>
-                <span style={{
-                  display: 'block', fontFamily: 'JetBrains Mono, monospace',
-                  fontSize: 10, fontWeight: 700, color: 'var(--outline)',
-                  letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16,
-                }}>DAY 2 • NOV 15</span>
+              {!tripId && (
+                <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--outline)' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 36, display: 'block', marginBottom: 8 }}>explore</span>
+                  <p style={{ fontSize: 13, lineHeight: 1.6 }}>
+                    Create a trip to see your itinerary on the map.
+                  </p>
+                  <Link to="/" style={{ marginTop: 12, display: 'inline-block', fontSize: 13, color: 'var(--primary)', fontWeight: 600 }}>
+                    Plan a Trip →
+                  </Link>
+                </div>
+              )}
 
-                <div style={{ position: 'relative' }}>
-                  {/* Vertical line */}
-                  <div style={{
-                    position: 'absolute', left: 15, top: 0, bottom: 0,
-                    width: 1, background: 'rgba(143,78,0,0.15)',
-                  }} />
+              {tripId && loading && (
+                <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                  <AshokaChakra size={48} opacity={0.6} />
+                  <p style={{ fontSize: 13, color: 'var(--outline)', marginTop: 8 }}>Loading activities…</p>
+                </div>
+              )}
 
-                  {TIMELINE_STOPS.map((stop, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 14, marginBottom: 20, position: 'relative', zIndex: 1 }}>
+              {tripId && !loading && (
+                <div style={{ flex: 1, overflowY: 'auto', position: 'relative' }}>
+                  {filteredActivities.length === 0 ? (
+                    <p style={{ fontSize: 13, color: 'var(--outline)', textAlign: 'center', marginTop: 20 }}>No activities in this category.</p>
+                  ) : (
+                    <div style={{ position: 'relative' }}>
+                      {/* Vertical line */}
                       <div style={{
-                        width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        ...(stop.active
-                          ? { background: '#138808', border: '3px solid rgba(255,255,255,0.8)' }
-                          : stop.done
-                          ? { background: 'var(--surface-variant)', border: '2px solid rgba(143,78,0,0.2)' }
-                          : { background: 'rgba(143,78,0,0.1)', border: '2px solid rgba(143,78,0,0.15)' }
-                        ),
-                      }}>
-                        <span className="material-symbols-outlined" style={{
-                          fontSize: 14,
-                          color: stop.active ? '#fff' : 'var(--outline)',
-                        }}>
-                          {stop.active ? 'location_on' : stop.done ? 'check' : 'radio_button_unchecked'}
-                        </span>
-                      </div>
-                      <div style={{ flex: 1, opacity: stop.done ? 0.6 : 1 }}>
-                        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: stop.active ? 'var(--primary)' : 'var(--outline)', fontWeight: stop.active ? 700 : 400, marginBottom: 2 }}>{stop.time}</div>
-                        {stop.active ? (
-                          <div className="neo-raised" style={{ borderRadius: 10, padding: 12, border: '1px solid rgba(255,153,51,0.2)' }}>
-                            <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--on-surface)', marginBottom: 4 }}>{stop.name}</div>
-                            <div style={{ fontSize: 12, color: 'var(--on-surface-variant)', marginBottom: 8 }}>{stop.desc}</div>
-                            <div style={{ height: 4, borderRadius: 4, background: 'rgba(143,78,0,0.1)', overflow: 'hidden' }}>
-                              <div style={{ height: '100%', width: `${stop.progress}%`, background: 'var(--primary)' }} />
+                        position: 'absolute', left: 15, top: 0, bottom: 0,
+                        width: 1, background: 'rgba(143,78,0,0.15)',
+                      }} />
+
+                      {filteredActivities.map((act, i) => {
+                        const isActive = act.date === today
+                        const isDone = act.date && act.date < today
+                        return (
+                          <div key={act.id} style={{ display: 'flex', gap: 14, marginBottom: 20, position: 'relative', zIndex: 1, cursor: 'pointer' }}
+                            onClick={() => setSelectedActivity(act)}>
+                            <div style={{
+                              width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              ...(isActive
+                                ? { background: '#138808', border: '3px solid rgba(255,255,255,0.8)' }
+                                : isDone
+                                ? { background: 'var(--surface-variant)', border: '2px solid rgba(143,78,0,0.2)' }
+                                : { background: 'rgba(143,78,0,0.1)', border: '2px solid rgba(143,78,0,0.15)' }
+                              ),
+                            }}>
+                              <span className="material-symbols-outlined" style={{
+                                fontSize: 14,
+                                color: isActive ? '#fff' : 'var(--outline)',
+                              }}>
+                                {isActive ? 'location_on' : isDone ? 'check' : 'radio_button_unchecked'}
+                              </span>
+                            </div>
+                            <div style={{ flex: 1, opacity: isDone ? 0.6 : 1 }}>
+                              <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: isActive ? 'var(--primary)' : 'var(--outline)', fontWeight: isActive ? 700 : 400, marginBottom: 2 }}>
+                                Day {act.day_number} • {act.time_slot}
+                              </div>
+                              {isActive ? (
+                                <div className="neo-raised" style={{ borderRadius: 10, padding: 12, border: '1px solid rgba(255,153,51,0.2)' }}>
+                                  <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--on-surface)', marginBottom: 4 }}>{act.title}</div>
+                                  <div style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>{act.location || act.description || ''}</div>
+                                </div>
+                              ) : (
+                                <div>
+                                  <div style={{ fontWeight: 500, fontSize: 14, color: 'var(--on-surface)' }}>{act.title}</div>
+                                  <div style={{ fontSize: 12, color: 'var(--on-surface-variant)', marginTop: 2 }}>{act.location || ''}</div>
+                                </div>
+                              )}
                             </div>
                           </div>
-                        ) : (
-                          <div>
-                            <div style={{ fontWeight: 500, fontSize: 14, color: 'var(--on-surface)' }}>{stop.name}</div>
-                            <div style={{ fontSize: 12, color: 'var(--on-surface-variant)', marginTop: 2 }}>{stop.desc}</div>
-                          </div>
-                        )}
-                      </div>
+                        )
+                      })}
                     </div>
-                  ))}
+                  )}
                 </div>
-              </div>
+              )}
             </div>
           </aside>
 
@@ -158,13 +240,11 @@ export default function MapPage() {
               boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
               display: 'flex', flexDirection: 'column', height: '100%',
             }}>
-              {/* Hero image */}
-              <div style={{ height: 200, position: 'relative', overflow: 'hidden' }}>
-                <div style={{
-                  position: 'absolute', inset: 0,
-                  backgroundImage: 'url(https://lh3.googleusercontent.com/aida-public/AB6AXuBLY2PrIlG4GYOJN_Gv8KQHawhobuDuhlWlPNOLaKNmPq2rUS_E0FLM2JYDNU-lWWeLoBfeOJH32LhKtR601C7bHDWMMMgS42cDQmUFabgs4LgYQH0bCXha7KFC8rv3Rt0wc1ORc9v-aM_U8uIL1jIs9u8LT0r98dpyCw0C_ZYXCwuPOBj2hJKtjKHKwIoXyT_qZka5G1-osH2z9Y7o5WW88ZNg7OyWeWxoBzo9rmEXL6zTB8aybmOq4w)',
-                  backgroundSize: 'cover', backgroundPosition: 'center',
-                }} />
+              {/* Hero image area */}
+              <div style={{ height: 200, position: 'relative', overflow: 'hidden', background: 'linear-gradient(135deg, #2d1a09 0%, #5a3018 100%)' }}>
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.12 }}>
+                  <AshokaChakra size={180} opacity={1} />
+                </div>
                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 60%)' }} />
                 <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 8 }}>
                   {['favorite', 'share'].map(ic => (
@@ -180,71 +260,98 @@ export default function MapPage() {
                   ))}
                 </div>
                 <div style={{ position: 'absolute', bottom: 14, left: 16, right: 16 }}>
-                  <span style={{
-                    display: 'inline-block', padding: '3px 10px',
-                    background: 'rgba(255,153,51,0.75)', backdropFilter: 'blur(6px)',
-                    borderRadius: 4, fontSize: 10, fontWeight: 700,
-                    color: '#fff', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6,
-                  }}>Heritage Site</span>
-                  <h2 style={{
-                    fontFamily: 'Cormorant Garamond, serif',
-                    fontSize: 26, fontWeight: 700, color: '#fff',
-                    textShadow: '0 2px 8px rgba(0,0,0,0.4)',
-                  }}>Victoria Memorial</h2>
+                  {activeAct && (
+                    <>
+                      <span style={{
+                        display: 'inline-block', padding: '3px 10px',
+                        background: 'rgba(255,153,51,0.75)', backdropFilter: 'blur(6px)',
+                        borderRadius: 4, fontSize: 10, fontWeight: 700,
+                        color: '#fff', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6,
+                      }}>{activeAct.category || 'Activity'}</span>
+                      <h2 style={{
+                        fontFamily: 'Cormorant Garamond, serif',
+                        fontSize: 24, fontWeight: 700, color: '#fff',
+                        textShadow: '0 2px 8px rgba(0,0,0,0.4)',
+                      }}>{activeAct.title}</h2>
+                    </>
+                  )}
+                  {!activeAct && (
+                    <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: 24, fontWeight: 700, color: '#fff' }}>
+                      {tripDetail ? tripDetail.destination : 'Select a stop'}
+                    </h2>
+                  )}
                 </div>
               </div>
 
               {/* Card content */}
               <div style={{ flex: 1, padding: 20, display: 'flex', flexDirection: 'column', background: 'rgba(255,248,245,0.97)', overflowY: 'auto' }}>
-                <p style={{ fontSize: 14, color: 'var(--on-surface-variant)', lineHeight: 1.65, marginBottom: 18 }}>
-                  A majestic white marble monument built in memory of Queen Victoria. It serves as a museum housing a vast collection of paintings and manuscripts from the British period.
-                </p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-                  {[
-                    { icon: 'schedule', label: 'Duration', value: '2.5 Hours' },
-                    { icon: 'confirmation_number', label: 'Entry', value: '₹50 / person' },
-                  ].map(info => (
-                    <div key={info.label} className="neo-inset" style={{ borderRadius: 10, padding: '12px' }}>
-                      <span className="material-symbols-outlined" style={{ color: 'var(--primary)', fontSize: 20, marginBottom: 4, display: 'block' }}>{info.icon}</span>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--outline)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{info.label}</div>
-                      <div style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, fontSize: 14, color: 'var(--on-surface)', marginTop: 2 }}>{info.value}</div>
+                {activeAct ? (
+                  <>
+                    <p style={{ fontSize: 14, color: 'var(--on-surface-variant)', lineHeight: 1.65, marginBottom: 18 }}>
+                      {activeAct.description || `${activeAct.time_slot} activity at ${activeAct.location || activeAct.title}.`}
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+                      {[
+                        { icon: 'schedule', label: 'Time Slot', value: activeAct.time_slot },
+                        { icon: 'confirmation_number', label: 'Est. Cost', value: `₹${activeAct.estimated_cost?.toLocaleString('en-IN') || '0'}` },
+                      ].map(info => (
+                        <div key={info.label} className="neo-inset" style={{ borderRadius: 10, padding: '12px' }}>
+                          <span className="material-symbols-outlined" style={{ color: 'var(--primary)', fontSize: 20, marginBottom: 4, display: 'block' }}>{info.icon}</span>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--outline)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{info.label}</div>
+                          <div style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, fontSize: 14, color: 'var(--on-surface)', marginTop: 2 }}>{info.value}</div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
 
-                {/* AI alert */}
-                <div className="neo-raised" style={{
-                  borderLeft: '4px solid var(--primary)',
-                  borderRadius: 10, padding: 14, marginBottom: 16,
-                }}>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    <AshokaChakra size={22} opacity={1} />
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Chakra Intelligence</div>
-                      <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)' }}>Rain expected at 4 PM.</p>
-                      <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', marginTop: 2 }}>Pivoting to indoor gallery tour first. Route optimized.</p>
-                    </div>
+                    {activeAct.location && (
+                      <div className="neo-raised" style={{ borderLeft: '4px solid var(--primary)', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                          <span className="material-symbols-outlined" style={{ color: 'var(--primary)', fontSize: 20 }}>location_on</span>
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Location</div>
+                            <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)' }}>{activeAct.location}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {activeAct.is_weather_sensitive && (
+                      <div className="neo-raised" style={{ borderLeft: '4px solid #FF9933', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                          <AshokaChakra size={22} opacity={1} />
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Chakra Intelligence</div>
+                            <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)' }}>This activity is weather-sensitive.</p>
+                            <p style={{ fontSize: 12, color: 'var(--on-surface-variant)', marginTop: 2 }}>AI will automatically replan if adverse conditions are detected.</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--outline)' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 40, display: 'block', marginBottom: 12 }}>map</span>
+                    <p style={{ fontSize: 14 }}>
+                      {tripId ? 'Click an activity in the timeline to view details.' : 'No trip loaded. Create a trip to see your map.'}
+                    </p>
+                    {!tripId && (
+                      <Link to="/" style={{ display: 'inline-block', marginTop: 14, fontSize: 14, color: 'var(--primary)', fontWeight: 700 }}>
+                        Plan a Trip →
+                      </Link>
+                    )}
                   </div>
-                </div>
+                )}
 
-                <button className="btn-cta" style={{
-                  width: '100%', padding: '14px', borderRadius: 12, fontSize: 15,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 20 }}>navigation</span>
-                  Start Navigation
-                </button>
-
-                {/* Flight disruption pivot button */}
+                {/* Simulate disruption button */}
                 <button onClick={() => setShowPivot(true)} style={{
-                  marginTop: 10, width: '100%', padding: '12px',
+                  marginTop: 'auto', width: '100%', padding: '12px',
                   borderRadius: 12, border: '2px solid var(--error)',
                   background: 'rgba(186,26,26,0.06)',
                   color: 'var(--error)', fontWeight: 700, fontSize: 14,
                   cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 18 }}>warning</span>
-                  Simulate Flight Disruption
+                  Simulate Disruption Pivot
                 </button>
               </div>
             </div>
@@ -252,15 +359,15 @@ export default function MapPage() {
         </div>
       </div>
 
-      {/* ── Disruption Pivot Modal ── */}
-      {showPivot && <PivotModal onClose={() => setShowPivot(false)} />}
+      {/* Disruption Pivot Modal */}
+      {showPivot && <PivotModal onClose={() => setShowPivot(false)} tripId={tripId} activeAct={activeAct} />}
 
       <Footer />
     </>
   )
 }
 
-function MapMarker({ top, left, type, label, icon, color = '#FF9933', pulse = false }) {
+function MapMarker({ top, left, label, icon, color = '#FF9933', pulse = false, onClick }) {
   const [hov, setHov] = useState(false)
   return (
     <div
@@ -270,6 +377,7 @@ function MapMarker({ top, left, type, label, icon, color = '#FF9933', pulse = fa
         zIndex: 5, display: 'flex', flexDirection: 'column', alignItems: 'center',
         cursor: 'pointer',
       }}
+      onClick={onClick}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
     >
@@ -292,14 +400,15 @@ function MapMarker({ top, left, type, label, icon, color = '#FF9933', pulse = fa
           borderRadius: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
           fontSize: 12, fontWeight: 700,
           color: pulse ? '#138808' : 'var(--primary)',
-          whiteSpace: 'nowrap',
+          whiteSpace: 'nowrap', maxWidth: 200,
+          overflow: 'hidden', textOverflow: 'ellipsis',
         }}>{label}</div>
       )}
     </div>
   )
 }
 
-function PivotModal({ onClose }) {
+function PivotModal({ onClose, tripId, activeAct }) {
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 200,
@@ -327,10 +436,10 @@ function PivotModal({ onClose }) {
               <span className="material-symbols-outlined" style={{ color: 'var(--error)', fontSize: 28 }}>warning</span>
             </div>
             <div>
-              <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: 26, fontWeight: 700, color: 'var(--on-surface)' }}>Flight 6E-201 Delayed</h2>
+              <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: 26, fontWeight: 700, color: 'var(--on-surface)' }}>Disruption Detected</h2>
               <p style={{ fontSize: 14, color: 'var(--on-surface-variant)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>smart_toy</span>
-                Chakra AI has proposed an optimal itinerary pivot.
+                Chakra AI will propose an optimal itinerary pivot.
               </p>
             </div>
           </div>
@@ -342,25 +451,25 @@ function PivotModal({ onClose }) {
           </button>
         </div>
 
-        {/* Body: two columns */}
+        {/* Body */}
         <div style={{ padding: '28px', display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 16, background: 'rgba(255,248,245,0.6)' }}>
-          {/* Original */}
           <div>
             <h3 style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, fontWeight: 700, color: 'var(--outline)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 14 }}>Original Plan</h3>
             <div className="neo-raised" style={{ borderRadius: 14, padding: '20px', opacity: 0.7 }}>
-              <TimelineItem time="10:00 AM" title="City Palace Tour" loc="Jaipur, Rajasthan" />
-              <TimelineItem time="02:30 PM" title="Albert Hall Museum" loc="Delay impact detected" error />
+              {activeAct ? (
+                <MapTimelineItem time={activeAct.time_slot} title={activeAct.title} loc={activeAct.location || ''} error />
+              ) : (
+                <MapTimelineItem time="10:00 AM" title="Current Activity" loc="Disruption impact detected" error />
+              )}
             </div>
           </div>
 
-          {/* Arrow */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div className="neo-raised" style={{ width: 40, height: 40, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span className="material-symbols-outlined" style={{ color: 'var(--primary)' }}>arrow_forward</span>
             </div>
           </div>
 
-          {/* AI Pivot */}
           <div>
             <h3 style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 14, display: 'flex', gap: 6, alignItems: 'center' }}>
               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>auto_awesome</span>
@@ -368,40 +477,49 @@ function PivotModal({ onClose }) {
             </h3>
             <div className="neo-raised" style={{ borderRadius: 14, padding: '20px', border: '1px solid rgba(255,153,51,0.25)', position: 'relative', overflow: 'hidden' }}>
               <div style={{ position: 'absolute', top: -30, right: -30, width: 100, height: 100, background: 'rgba(255,153,51,0.08)', borderRadius: '50%', filter: 'blur(20px)' }} />
-              <TimelineItem time="09:30 AM" title="Albert Hall Museum" badge="Moved Earlier" loc="Beats the afternoon heat." primary />
-              <TimelineItem time="07:00 PM" title="Heritage Dinner at Chokhi Dhani" badge="New Addition" loc="Fills the evening gap nicely." green />
+              <MapTimelineItem time="Alternative" title="Indoor Cultural Experience" badge="AI Suggested" loc="Curated for current conditions." primary />
             </div>
           </div>
         </div>
 
-        {/* Footer */}
         <div style={{
           padding: '18px 28px', borderTop: '1px solid rgba(143,78,0,0.12)',
           background: 'rgba(255,248,245,0.8)',
-          display: 'flex', justifyContent: 'flex-end', gap: 12,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
-          <button onClick={onClose} className="neo-raised" style={{
-            padding: '12px 24px', borderRadius: 999, border: '1px solid var(--outline-variant)',
-            background: 'none', fontSize: 15, fontWeight: 600, color: 'var(--on-surface-variant)', cursor: 'pointer',
-          }}>Keep Original</button>
-          <button className="btn-cta" onClick={onClose} style={{
-            padding: '12px 28px', borderRadius: 999, fontSize: 15,
-            display: 'flex', alignItems: 'center', gap: 8,
-          }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>check_circle</span>
-            Confirm Re-plan
-          </button>
+          {tripId && (
+            <Link to={`/itinerary?tripId=${tripId}`} className="btn-cta" style={{
+              padding: '12px 24px', borderRadius: 999, fontSize: 14, textDecoration: 'none',
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>sync</span>
+              Go to Itinerary to Replan
+            </Link>
+          )}
+          <div style={{ display: 'flex', gap: 12, marginLeft: 'auto' }}>
+            <button onClick={onClose} className="neo-raised" style={{
+              padding: '12px 24px', borderRadius: 999, border: '1px solid var(--outline-variant)',
+              background: 'none', fontSize: 15, fontWeight: 600, color: 'var(--on-surface-variant)', cursor: 'pointer',
+            }}>Keep Original</button>
+            <button className="btn-cta" onClick={onClose} style={{
+              padding: '12px 28px', borderRadius: 999, fontSize: 15,
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>check_circle</span>
+              Confirm Pivot
+            </button>
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
-function TimelineItem({ time, title, loc, error, primary, green, badge }) {
+function MapTimelineItem({ time, title, loc, error, primary, badge }) {
   return (
     <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'flex-start' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-        <div style={{ width: 12, height: 12, borderRadius: '50%', background: error ? 'var(--error)' : primary ? 'var(--primary)' : green ? '#138808' : 'var(--outline)' }} />
+        <div style={{ width: 12, height: 12, borderRadius: '50%', background: error ? 'var(--error)' : primary ? 'var(--primary)' : 'var(--outline)' }} />
         <div style={{ width: 1, height: 36, background: 'rgba(143,78,0,0.12)', margin: '4px 0' }} />
       </div>
       <div style={{
@@ -411,15 +529,12 @@ function TimelineItem({ time, title, loc, error, primary, green, badge }) {
       }}>
         <div style={{
           fontFamily: 'JetBrains Mono, monospace', fontSize: 12, marginBottom: 2,
-          color: error ? 'var(--error)' : primary ? 'var(--primary)' : green ? '#138808' : 'var(--on-surface-variant)',
+          color: error ? 'var(--error)' : primary ? 'var(--primary)' : 'var(--on-surface-variant)',
           textDecoration: error ? 'line-through' : 'none',
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
           {time}
-          {badge && <span style={{
-            fontSize: 10, padding: '2px 8px', background: 'rgba(143,115,100,0.12)',
-            borderRadius: 4, color: 'var(--outline)',
-          }}>{badge}</span>}
+          {badge && <span style={{ fontSize: 10, padding: '2px 8px', background: 'rgba(143,115,100,0.12)', borderRadius: 4, color: 'var(--outline)' }}>{badge}</span>}
         </div>
         <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--on-surface)', textDecoration: error ? 'line-through' : 'none' }}>{title}</div>
         <div style={{ fontSize: 12, marginTop: 3, color: error ? 'var(--error)' : 'var(--on-surface-variant)' }}>{loc}</div>
