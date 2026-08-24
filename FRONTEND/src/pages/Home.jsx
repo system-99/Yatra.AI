@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { AshokaChakra, Footer } from '../components/Layout'
+import api from '../services/api'
 
 /* ── Frame sequence config ──────────────────────────────────────────── */
 const FRAME_COUNT  = 208          // frames 001 → 208
@@ -7,7 +9,6 @@ const FRAME_START  = 1
 const SCROLL_HEIGHT = '600vh'     // total sticky scroll distance
 
 function frameSrc(n) {
-  // Frames are in public/frames/ – ezgif-frame-XXX.jpg, zero-padded to 3 digits
   return `/frames/ezgif-frame-${String(n).padStart(3, '0')}.jpg`
 }
 
@@ -55,13 +56,34 @@ const PLACEHOLDERS = [
   'Solo backpacking through Northeast India — Meghalaya, Sikkim, Arunachal...',
 ]
 
+/* ── Interest categories mapped from chips ─────────────────────────── */
+const CHIP_TO_INTEREST = {
+  '🏔️ Hill Stations':      'nature',
+  '🏖️ Beaches':            'nature',
+  '🕌 Heritage Sites':     'culture',
+  '🚂 Train Journey':      'sightseeing',
+  '🌿 Nature & Wildlife':  'nature',
+  '🎭 Cultural Experience':'culture',
+  '🏙️ City Breaks':        'sightseeing',
+  '🛕 Temple Circuits':    'culture',
+  '🍛 Food Trail':         'food',
+}
+
+/* ── Helper: today + N days ─────────────────────────────────────────── */
+function dateOffset(days) {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return d.toISOString().split('T')[0]
+}
+
 export default function HomePage() {
+  const navigate = useNavigate()
+
   /* canvas scroll state */
   const canvasRef      = useRef(null)
   const imagesRef      = useRef([])
   const loadedRef      = useRef(0)
   const [activePhase,  setActivePhase]  = useState(0)
-  const [phaseState,   setPhaseState]   = useState('active') // 'active' | 'passed' | 'entering'
   const [promptInput,  setPromptInput]  = useState('')
   const [charCount,    setCharCount]    = useState(0)
   const [activeChips,  setActiveChips]  = useState([])
@@ -69,6 +91,18 @@ export default function HomePage() {
   const [phaseVisible, setPhaseVisible] = useState(true)
   const prevPhaseRef   = useRef(0)
   const heroRef        = useRef(null)
+
+  /* trip form state */
+  const [showForm,     setShowForm]     = useState(false)
+  const [loading,      setLoading]      = useState(false)
+  const [error,        setError]        = useState(null)
+  const [tripForm,     setTripForm]     = useState({
+    destination: '',
+    start_date: dateOffset(7),
+    end_date: dateOffset(12),
+    budget: 15000,
+    pace: 'moderate',
+  })
 
   /* ── Pre-load all frames ─────────────────────────────────────────── */
   useEffect(() => {
@@ -92,13 +126,11 @@ export default function HomePage() {
     const dpr = window.devicePixelRatio || 1
     const displayW = canvas.offsetWidth
     const displayH = canvas.offsetHeight
-    // Scale canvas backing store for sharp rendering on high-DPI screens
     canvas.width  = displayW * dpr
     canvas.height = displayH * dpr
     canvas.style.width  = displayW + 'px'
     canvas.style.height = displayH + 'px'
     ctx.scale(dpr, dpr)
-    // cover-fit
     const scale = Math.max(displayW / img.naturalWidth, displayH / img.naturalHeight)
     const sw = img.naturalWidth * scale
     const sh = img.naturalHeight * scale
@@ -117,12 +149,8 @@ export default function HomePage() {
         if (!hero) return
         const rect   = hero.getBoundingClientRect()
         const ratio  = Math.max(0, Math.min(1, -rect.top / (rect.height - window.innerHeight)))
-
-        // frame index
         const frameIdx = Math.min(FRAME_COUNT - 1, Math.floor(ratio * FRAME_COUNT))
         drawFrame(frameIdx)
-
-        // phase index (5 phases)
         const phaseIdx = Math.min(PHASES.length - 1, Math.floor(ratio * PHASES.length))
         if (phaseIdx !== prevPhaseRef.current) {
           prevPhaseRef.current = phaseIdx
@@ -162,6 +190,74 @@ export default function HomePage() {
       prev.includes(chip) ? prev.filter(c => c !== chip) : [...prev, chip]
     )
 
+  /* ── Open form (parse prompt for destination hint) ───────────────── */
+  const openForm = () => {
+    // Simple heuristic: extract destination from prompt
+    const destMatch = promptInput.match(/(?:to|in|for)\s+([A-Z][a-zA-Z\s,]+?)(?:\s+with|\s+for|\s+budget|,|$)/i)
+    if (destMatch && destMatch[1].trim().length >= 2) {
+      setTripForm(f => ({ ...f, destination: destMatch[1].trim().replace(/,$/, '') }))
+    }
+    setShowForm(true)
+    setError(null)
+  }
+
+  /* ── Submit trip to backend ───────────────────────────────────────── */
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (loading) return
+    setError(null)
+
+    // Validate required fields
+    if (!tripForm.destination || tripForm.destination.trim().length < 2) {
+      setError('Please enter a valid destination (at least 2 characters).')
+      return
+    }
+    if (new Date(tripForm.end_date) < new Date(tripForm.start_date)) {
+      setError('End date cannot be earlier than start date.')
+      return
+    }
+    if (tripForm.budget <= 0) {
+      setError('Budget must be a positive number.')
+      return
+    }
+
+    // Build interests from active chips
+    const interests = [...new Set(
+      activeChips.map(c => CHIP_TO_INTEREST[c] || 'sightseeing')
+    )]
+
+    const tripPayload = {
+      destination: tripForm.destination.trim(),
+      start_date: tripForm.start_date,
+      end_date: tripForm.end_date,
+      budget: parseFloat(tripForm.budget),
+      interests: interests.length > 0 ? interests : ['sightseeing'],
+      pace: tripForm.pace,
+    }
+
+    try {
+      setLoading(true)
+
+      // Step 1: Create trip
+      const createdTrip = await api.createTrip(tripPayload)
+      const tripId = createdTrip.id
+
+      // Step 2: Generate itinerary
+      await api.generateItinerary(tripId)
+
+      // Step 3: Navigate to itinerary page
+      navigate(`/itinerary?tripId=${tripId}`)
+    } catch (err) {
+      console.error('Trip creation failed:', err)
+      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        setError('Cannot connect to the server. Please make sure the backend is running.')
+      } else {
+        setError(err.message || 'Something went wrong. Please try again.')
+      }
+      setLoading(false)
+    }
+  }
+
   const phase = PHASES[activePhase]
 
   return (
@@ -172,19 +268,14 @@ export default function HomePage() {
           position: 'sticky', top: 0, height: '100vh',
           overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          {/* Frame canvas */}
           <canvas
             ref={canvasRef}
             style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
           />
-
-          {/* Dark vignette overlay */}
           <div style={{
             position: 'absolute', inset: 0,
             background: 'linear-gradient(to bottom, rgba(35,26,19,0.25) 0%, rgba(35,26,19,0.55) 100%)',
           }} />
-
-          {/* Ashoka Chakra watermark */}
           <div style={{
             position: 'absolute', top: '50%', left: '50%',
             transform: 'translate(-50%,-50%)',
@@ -193,7 +284,6 @@ export default function HomePage() {
             <AshokaChakra size={Math.min(window.innerWidth * 0.6, 700)} opacity={0.08} />
           </div>
 
-          {/* Scroll phase card */}
           <div
             className="glass-panel flag-border"
             style={{
@@ -227,7 +317,6 @@ export default function HomePage() {
               {phase.body}
             </p>
 
-            {/* Feature badge pills */}
             {phase.badges && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center', marginTop: 24 }}>
                 {phase.badges.map(b => (
@@ -243,7 +332,6 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* Scroll indicator on first phase */}
             {activePhase === 0 && (
               <div style={{ marginTop: 32, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
                 <div style={{
@@ -269,7 +357,6 @@ export default function HomePage() {
         background: '#F4F4F4',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        {/* Blurred Victoria bg layer */}
         <div style={{
           position: 'absolute', inset: 0,
           backgroundImage: `url(${frameSrc(208)})`,
@@ -283,7 +370,6 @@ export default function HomePage() {
             borderRadius: 28, padding: '52px 48px',
             overflow: 'hidden', position: 'relative',
           }}>
-            {/* Glass accent strip at top */}
             <div style={{
               position: 'absolute', top: 0, left: 0, right: 0, height: 100,
               background: 'rgba(255,248,245,0.5)', backdropFilter: 'blur(12px)',
@@ -313,107 +399,302 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* Textarea */}
-              <div style={{ position: 'relative', marginBottom: 22 }}>
-                {/* Saffron left accent */}
+              {/* Error Banner */}
+              {error && (
                 <div style={{
-                  position: 'absolute', left: 0, top: 12, bottom: 12, width: 3,
-                  background: 'linear-gradient(to bottom, #FF9933, #138808)',
-                  borderRadius: 2, zIndex: 2,
-                }} />
-                <textarea
-                  className="neo-surface-inset"
-                  style={{
-                    width: '100%', minHeight: 160,
-                    padding: '18px 56px 18px 20px',
-                    borderRadius: 16, border: 'none', outline: 'none',
-                    fontFamily: 'Plus Jakarta Sans, sans-serif',
-                    fontSize: 16, lineHeight: 1.7,
-                    color: 'var(--on-surface)',
-                    resize: 'none',
-                    background: 'transparent',
-                  }}
-                  placeholder={placeholder}
-                  maxLength={500}
-                  value={promptInput}
-                  onChange={e => {
-                    setPromptInput(e.target.value)
-                    setCharCount(e.target.value.length)
-                  }}
-                />
-                <span style={{
-                  position: 'absolute', bottom: 14, right: 16,
-                  fontFamily: 'JetBrains Mono, monospace',
-                  fontSize: 12, color: charCount > 450 ? '#FF9933' : 'var(--outline)',
+                  marginBottom: 18, padding: '14px 18px', borderRadius: 12,
+                  background: 'rgba(186,26,26,0.08)',
+                  border: '1px solid rgba(186,26,26,0.25)',
+                  display: 'flex', alignItems: 'flex-start', gap: 10,
                 }}>
-                  {charCount}/500
-                </span>
-              </div>
-
-              {/* Suggestion chips */}
-              <div style={{ marginBottom: 28 }}>
-                <span style={{
-                  fontSize: 11, fontWeight: 700,
-                  color: 'var(--on-surface-variant)',
-                  textTransform: 'uppercase', letterSpacing: '0.1em',
-                  marginRight: 10,
-                }}>Suggestions:</span>
-                <div style={{
-                  display: 'flex', flexWrap: 'wrap',
-                  gap: 10, marginTop: 12,
-                }}>
-                  {CHIPS.map(chip => (
-                    <button
-                      key={chip}
-                      className={`chip ${activeChips.includes(chip) ? 'active' : ''}`}
-                      onClick={() => toggleChip(chip)}
-                    >
-                      {chip}
-                    </button>
-                  ))}
+                  <span className="material-symbols-outlined" style={{ color: 'var(--error)', fontSize: 20, flexShrink: 0, marginTop: 1 }}>error</span>
+                  <p style={{ fontSize: 14, color: 'var(--error)', margin: 0, lineHeight: 1.5 }}>{error}</p>
                 </div>
-              </div>
+              )}
 
-              {/* Quick option tiles */}
-              <div style={{
-                display: 'grid', gridTemplateColumns: 'repeat(3,1fr)',
-                gap: 14, marginBottom: 32,
-              }}>
-                {[
-                  { icon: 'calendar_month', label: 'Set Dates' },
-                  { icon: 'group',          label: 'Group Size' },
-                  { icon: 'account_balance_wallet', label: 'Budget Range' },
-                ].map(tile => (
-                  <button key={tile.label} className="neo-raised" style={{
-                    border: 'none', borderRadius: 14, padding: '14px 10px',
-                    cursor: 'pointer',
-                    display: 'flex', flexDirection: 'column',
-                    alignItems: 'center', gap: 6,
-                    transition: 'transform 0.15s, box-shadow 0.15s',
-                  }}
-                    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)' }}
-                    onMouseLeave={e => { e.currentTarget.style.transform = '' }}
-                  >
-                    <span className="material-symbols-outlined" style={{ color: '#FF9933', fontSize: 22 }}>{tile.icon}</span>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface-variant)' }}>{tile.label}</span>
+              {/* Textarea */}
+              {!showForm && (
+                <>
+                  <div style={{ position: 'relative', marginBottom: 22 }}>
+                    <div style={{
+                      position: 'absolute', left: 0, top: 12, bottom: 12, width: 3,
+                      background: 'linear-gradient(to bottom, #FF9933, #138808)',
+                      borderRadius: 2, zIndex: 2,
+                    }} />
+                    <textarea
+                      className="neo-surface-inset"
+                      style={{
+                        width: '100%', minHeight: 160,
+                        padding: '18px 56px 18px 20px',
+                        borderRadius: 16, border: 'none', outline: 'none',
+                        fontFamily: 'Plus Jakarta Sans, sans-serif',
+                        fontSize: 16, lineHeight: 1.7,
+                        color: 'var(--on-surface)',
+                        resize: 'none',
+                        background: 'transparent',
+                      }}
+                      placeholder={placeholder}
+                      maxLength={500}
+                      value={promptInput}
+                      onChange={e => {
+                        setPromptInput(e.target.value)
+                        setCharCount(e.target.value.length)
+                      }}
+                    />
+                    <span style={{
+                      position: 'absolute', bottom: 14, right: 16,
+                      fontFamily: 'JetBrains Mono, monospace',
+                      fontSize: 12, color: charCount > 450 ? '#FF9933' : 'var(--outline)',
+                    }}>
+                      {charCount}/500
+                    </span>
+                  </div>
+
+                  {/* Suggestion chips */}
+                  <div style={{ marginBottom: 28 }}>
+                    <span style={{
+                      fontSize: 11, fontWeight: 700,
+                      color: 'var(--on-surface-variant)',
+                      textTransform: 'uppercase', letterSpacing: '0.1em',
+                      marginRight: 10,
+                    }}>Suggestions:</span>
+                    <div style={{
+                      display: 'flex', flexWrap: 'wrap',
+                      gap: 10, marginTop: 12,
+                    }}>
+                      {CHIPS.map(chip => (
+                        <button
+                          key={chip}
+                          className={`chip ${activeChips.includes(chip) ? 'active' : ''}`}
+                          onClick={() => toggleChip(chip)}
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Quick option tiles */}
+                  <div style={{
+                    display: 'grid', gridTemplateColumns: 'repeat(3,1fr)',
+                    gap: 14, marginBottom: 32,
+                  }}>
+                    {[
+                      { icon: 'calendar_month', label: 'Set Dates' },
+                      { icon: 'group',          label: 'Group Size' },
+                      { icon: 'account_balance_wallet', label: 'Budget Range' },
+                    ].map(tile => (
+                      <button key={tile.label} className="neo-raised" style={{
+                        border: 'none', borderRadius: 14, padding: '14px 10px',
+                        cursor: 'pointer',
+                        display: 'flex', flexDirection: 'column',
+                        alignItems: 'center', gap: 6,
+                        transition: 'transform 0.15s, box-shadow 0.15s',
+                      }}
+                        onClick={openForm}
+                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)' }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = '' }}
+                      >
+                        <span className="material-symbols-outlined" style={{ color: '#FF9933', fontSize: 22 }}>{tile.icon}</span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface-variant)' }}>{tile.label}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={{ borderTop: '1px solid rgba(143,78,0,0.12)', marginBottom: 28 }} />
+
+                  <button className="btn-cta" onClick={openForm} style={{
+                    width: '100%', height: 58,
+                    borderRadius: 16, fontSize: 17,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                  }}>
+                    <span style={{ fontSize: 20 }}>✨</span>
+                    Generate My Itinerary
                   </button>
-                ))}
-              </div>
+                </>
+              )}
 
-              {/* Divider */}
-              <div style={{ borderTop: '1px solid rgba(143,78,0,0.12)', marginBottom: 28 }} />
+              {/* ── Trip Details Form ── */}
+              {showForm && (
+                <form onSubmit={handleSubmit}>
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--on-surface-variant)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                      Destination *
+                    </label>
+                    <div className="neo-surface-inset" style={{ borderRadius: 12, overflow: 'hidden' }}>
+                      <input
+                        type="text"
+                        required
+                        minLength={2}
+                        value={tripForm.destination}
+                        onChange={e => setTripForm(f => ({ ...f, destination: e.target.value }))}
+                        placeholder="e.g. Darjeeling, Rajasthan, Kerala"
+                        style={{
+                          width: '100%', padding: '14px 16px',
+                          border: 'none', outline: 'none',
+                          fontFamily: 'Plus Jakarta Sans, sans-serif',
+                          fontSize: 16, background: 'transparent',
+                          color: 'var(--on-surface)',
+                        }}
+                      />
+                    </div>
+                  </div>
 
-              {/* CTA Button */}
-              <button className="btn-cta" style={{
-                width: '100%', height: 58,
-                borderRadius: 16, fontSize: 17,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-              }}>
-                <span style={{ fontSize: 20 }}>✨</span>
-                Generate My Itinerary
-              </button>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--on-surface-variant)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                        Start Date *
+                      </label>
+                      <div className="neo-surface-inset" style={{ borderRadius: 12, overflow: 'hidden' }}>
+                        <input
+                          type="date"
+                          required
+                          value={tripForm.start_date}
+                          min={dateOffset(0)}
+                          onChange={e => setTripForm(f => ({ ...f, start_date: e.target.value }))}
+                          style={{
+                            width: '100%', padding: '14px 16px',
+                            border: 'none', outline: 'none',
+                            fontFamily: 'JetBrains Mono, monospace',
+                            fontSize: 14, background: 'transparent',
+                            color: 'var(--on-surface)',
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--on-surface-variant)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                        End Date *
+                      </label>
+                      <div className="neo-surface-inset" style={{ borderRadius: 12, overflow: 'hidden' }}>
+                        <input
+                          type="date"
+                          required
+                          value={tripForm.end_date}
+                          min={tripForm.start_date}
+                          onChange={e => setTripForm(f => ({ ...f, end_date: e.target.value }))}
+                          style={{
+                            width: '100%', padding: '14px 16px',
+                            border: 'none', outline: 'none',
+                            fontFamily: 'JetBrains Mono, monospace',
+                            fontSize: 14, background: 'transparent',
+                            color: 'var(--on-surface)',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
 
-              {/* Disclaimer */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--on-surface-variant)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                        Budget (₹) *
+                      </label>
+                      <div className="neo-surface-inset" style={{ borderRadius: 12, overflow: 'hidden' }}>
+                        <input
+                          type="number"
+                          required
+                          min={100}
+                          value={tripForm.budget}
+                          onChange={e => setTripForm(f => ({ ...f, budget: e.target.value }))}
+                          style={{
+                            width: '100%', padding: '14px 16px',
+                            border: 'none', outline: 'none',
+                            fontFamily: 'JetBrains Mono, monospace',
+                            fontSize: 14, background: 'transparent',
+                            color: 'var(--on-surface)',
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--on-surface-variant)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                        Pace
+                      </label>
+                      <div className="neo-surface-inset" style={{ borderRadius: 12, overflow: 'hidden' }}>
+                        <select
+                          value={tripForm.pace}
+                          onChange={e => setTripForm(f => ({ ...f, pace: e.target.value }))}
+                          style={{
+                            width: '100%', padding: '14px 16px',
+                            border: 'none', outline: 'none',
+                            fontFamily: 'Plus Jakarta Sans, sans-serif',
+                            fontSize: 14, background: 'transparent',
+                            color: 'var(--on-surface)', cursor: 'pointer',
+                          }}
+                        >
+                          <option value="relaxed">😌 Relaxed</option>
+                          <option value="moderate">🚶 Moderate</option>
+                          <option value="fast-paced">⚡ Fast-paced</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Interests from chips */}
+                  <div style={{ marginBottom: 24 }}>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--on-surface-variant)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
+                      Interests (choose any)
+                    </label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {CHIPS.map(chip => (
+                        <button
+                          key={chip}
+                          type="button"
+                          className={`chip ${activeChips.includes(chip) ? 'active' : ''}`}
+                          onClick={() => toggleChip(chip)}
+                          style={{ fontSize: 13, padding: '6px 14px' }}
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid rgba(143,78,0,0.12)', marginBottom: 20 }} />
+
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    <button
+                      type="button"
+                      onClick={() => { setShowForm(false); setError(null) }}
+                      className="neo-raised"
+                      style={{
+                        flex: 1, height: 54, borderRadius: 14,
+                        border: '1.5px solid var(--outline-variant)',
+                        background: 'none', fontSize: 15, fontWeight: 600,
+                        color: 'var(--on-surface-variant)', cursor: 'pointer',
+                      }}
+                    >
+                      ← Back
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="btn-cta"
+                      style={{
+                        flex: 2, height: 54,
+                        borderRadius: 14, fontSize: 17,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                        opacity: loading ? 0.75 : 1,
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {loading ? (
+                        <>
+                          <span className="material-symbols-outlined spin-fast" style={{ fontSize: 20 }}>sync</span>
+                          Generating Itinerary…
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ fontSize: 20 }}>✨</span>
+                          Generate My Itinerary
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              )}
+
               <p style={{
                 textAlign: 'center', fontSize: 11,
                 color: 'var(--on-surface-variant)', marginTop: 14,
@@ -468,7 +749,6 @@ export default function HomePage() {
             }}>How It Works</h2>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 0, position: 'relative' }}>
-            {/* Connecting line */}
             <div style={{
               position: 'absolute', top: 40, left: '16.7%', right: '16.7%',
               height: 2,
@@ -479,7 +759,7 @@ export default function HomePage() {
               { num: '01', color: '#FF9933', icon: 'edit_note', title: 'Describe Your Trip', desc: 'Type or speak your destination, dates, and preferences in plain language.' },
               { num: '02', color: '#C6A84B', icon: 'auto_awesome', title: 'AI Builds Your Plan', desc: 'Gemini AI generates a complete, personalized day-by-day itinerary in seconds.' },
               { num: '03', color: '#138808', icon: 'travel_explore', title: 'Travel Smart', desc: 'Real-time monitoring replans your trip if anything disrupts it — zero lost moments.' },
-            ].map((step, i) => (
+            ].map((step) => (
               <div key={step.num} style={{
                 flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
                 textAlign: 'center', padding: '0 24px', position: 'relative', zIndex: 1,
@@ -578,7 +858,6 @@ function FeatureCard({ icon, color, title, desc }) {
         color: 'var(--on-surface)', marginBottom: 10,
       }}>{title}</h3>
       <p style={{ fontSize: 15, color: 'var(--on-surface-variant)', lineHeight: 1.65 }}>{desc}</p>
-      {/* Bottom accent bar */}
       <div style={{
         marginTop: 20, height: 2, borderRadius: 2,
         background: `linear-gradient(90deg, ${color}, transparent)`,
