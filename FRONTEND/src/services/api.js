@@ -79,6 +79,20 @@ export const api = {
     const response = await fetch(`${API_BASE_URL}/api/trips/${tripId}/disruptions`);
     return handleResponse(response);
   },
+
+  async geocodePlace(query) {
+    const response = await fetch(`${API_BASE_URL}/api/maps/geocode?query=${encodeURIComponent(query)}`);
+    return handleResponse(response);
+  },
+
+  async calculateRoute(points, traffic = true) {
+    const response = await fetch(`${API_BASE_URL}/api/maps/route`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ points, traffic }),
+    });
+    return handleResponse(response);
+  },
 };
 
 export default api;

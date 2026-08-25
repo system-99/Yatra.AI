@@ -3,8 +3,11 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { Footer } from '../components/Layout'
 import { AshokaChakra } from '../components/Layout'
 import api from '../services/api'
+import { CircleMarker, MapContainer, TileLayer, useMap } from 'react-leaflet'
+import 'leaflet/dist/leaflet.css'
 
 const FILTERS = ['Hotels', 'Dining', 'Transit', 'Heritage', 'All']
+const TOMTOM_KEY = import.meta.env.VITE_TOMTOM_API_KEY?.trim()
 
 /* Category → filter group */
 const CAT_TO_FILTER = {
@@ -27,6 +30,18 @@ export default function MapPage() {
   const [tripDetail, setTripDetail] = useState(null)
   const [loading, setLoading]       = useState(false)
   const [selectedActivity, setSelectedActivity] = useState(null)
+  const [liveLocation, setLiveLocation] = useState(null)
+
+  /* Browser GPS is kept local until authenticated location storage is added. */
+  useEffect(() => {
+    if (!navigator.geolocation) return undefined
+    const watchId = navigator.geolocation.watchPosition(
+      ({ coords }) => setLiveLocation({ latitude: coords.latitude, longitude: coords.longitude }),
+      (error) => console.warn('Location permission/error:', error.message),
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 },
+    )
+    return () => navigator.geolocation.clearWatch(watchId)
+  }, [])
 
   /* Fetch trip if tripId is available */
   useEffect(() => {
@@ -59,13 +74,29 @@ export default function MapPage() {
     <>
       <div className="page-content" style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-          {/* Map background (decorative dot-grid placeholder) */}
-          <div style={{
-            position: 'absolute', inset: 0,
-            backgroundColor: '#e8d7cb',
-            backgroundImage: 'radial-gradient(#d3c2b5 1px, transparent 1px)',
-            backgroundSize: '22px 22px',
-          }} />
+          {/* Live TomTom map. The browser key must be VITE_TOMTOM_API_KEY. */}
+          <MapContainer
+            center={[20.5937, 78.9629]}
+            zoom={5}
+            style={{ position: 'absolute', inset: 0, zIndex: 0 }}
+          >
+            <TileLayer
+              attribution={TOMTOM_KEY ? '&copy; TomTom' : '&copy; OpenStreetMap contributors'}
+              url={TOMTOM_KEY
+                ? `https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=${TOMTOM_KEY}`
+                : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'}
+            />
+            {liveLocation && (
+              <>
+                <RecenterMap position={[liveLocation.latitude, liveLocation.longitude]} />
+                <CircleMarker
+                  center={[liveLocation.latitude, liveLocation.longitude]}
+                  radius={9}
+                  pathOptions={{ color: '#fff', weight: 3, fillColor: '#1877F2', fillOpacity: 1 }}
+                />
+              </>
+            )}
+          </MapContainer>
 
           {/* SVG route overlay — decorative */}
           <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 1 }}>
@@ -365,6 +396,14 @@ export default function MapPage() {
       <Footer />
     </>
   )
+}
+
+function RecenterMap({ position }) {
+  const map = useMap()
+  useEffect(() => {
+    map.setView(position, Math.max(map.getZoom(), 15), { animate: true })
+  }, [map, position])
+  return null
 }
 
 function MapMarker({ top, left, label, icon, color = '#FF9933', pulse = false, onClick }) {
