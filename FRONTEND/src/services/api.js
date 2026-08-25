@@ -1,4 +1,9 @@
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+const DEV_API_KEY = import.meta.env.VITE_DEV_API_KEY || '';
+const authHeaders = (json = false) => ({
+  ...(json ? { 'Content-Type': 'application/json' } : {}),
+  'X-API-Key': DEV_API_KEY,
+});
 
 async function handleResponse(response) {
   if (!response.ok) {
@@ -21,9 +26,7 @@ export const api = {
   async createTrip(tripData) {
     const response = await fetch(`${API_BASE_URL}/api/trips/`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders(true),
       body: JSON.stringify(tripData),
     });
     return handleResponse(response);
@@ -33,19 +36,20 @@ export const api = {
   async generateItinerary(tripId) {
     const response = await fetch(`${API_BASE_URL}/api/trips/${tripId}/generate`, {
       method: 'POST',
+      headers: authHeaders(),
     });
     return handleResponse(response);
   },
 
   // Get trip detail (includes days/itinerary, disruptions)
   async getTripDetail(tripId) {
-    const response = await fetch(`${API_BASE_URL}/api/trips/${tripId}`);
+    const response = await fetch(`${API_BASE_URL}/api/trips/${tripId}`, { headers: authHeaders() });
     return handleResponse(response);
   },
 
   // Get only itinerary
   async getItinerary(tripId) {
-    const response = await fetch(`${API_BASE_URL}/api/trips/${tripId}/itinerary`);
+    const response = await fetch(`${API_BASE_URL}/api/trips/${tripId}/itinerary`, { headers: authHeaders() });
     return handleResponse(response);
   },
 

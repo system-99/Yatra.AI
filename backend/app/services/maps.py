@@ -43,30 +43,38 @@ def _get_json(url: str) -> dict[str, Any]:
         raise RuntimeError("Could not connect to TomTom") from exc
 
 
-def geocode_place(query: str) -> dict[str, Any]:
-    """Resolve a city, address, or landmark to coordinates."""
+def search_places(query: str, limit: int = 5, country_set: str = "IN") -> list[dict[str, Any]]:
+    """Return several geocoding candidates for ambiguity checking."""
     query = (query or "").strip()
     if not query:
         raise ValueError("A place name is required")
     path_query = quote(query, safe="")
-    params = urlencode({"key": _tomtom_key(), "limit": 1})
+    params = urlencode({"key": _tomtom_key(), "limit": min(max(limit, 1), 10), "countrySet": country_set})
     data = _get_json(
         f"https://api.tomtom.com/search/2/geocode/{path_query}.json?{params}"
     )
     results = data.get("results") or []
     if not results:
         raise ValueError(f"TomTom could not find '{query}'")
-    result = results[0]
-    position = result.get("position") or {}
-    address = result.get("address") or {}
-    return {
-        "query": query,
-        "latitude": position.get("lat"),
-        "longitude": position.get("lon"),
-        "label": address.get("freeformAddress") or result.get("poi", {}).get("name"),
-        "country": address.get("country"),
-        "municipality": address.get("municipality"),
-    }
+    candidates = []
+    for result in results:
+        position = result.get("position") or {}
+        address = result.get("address") or {}
+        candidates.append({
+            "query": query,
+            "latitude": position.get("lat"),
+            "longitude": position.get("lon"),
+            "label": address.get("freeformAddress") or result.get("poi", {}).get("name"),
+            "country": address.get("country"),
+            "municipality": address.get("municipality"),
+            "score": result.get("score"),
+        })
+    return candidates
+
+
+def geocode_place(query: str) -> dict[str, Any]:
+    """Resolve a city, address, or landmark using the best candidate."""
+    return search_places(query, limit=1)[0]
 
 
 def calculate_route(points: Iterable[dict[str, float]], traffic: bool = True) -> dict[str, Any]:

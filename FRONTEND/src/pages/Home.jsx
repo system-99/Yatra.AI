@@ -84,10 +84,7 @@ export default function HomePage() {
   const imagesRef      = useRef([])
   const loadedRef      = useRef(0)
   const [activePhase,  setActivePhase]  = useState(0)
-  const [promptInput,  setPromptInput]  = useState('')
-  const [charCount,    setCharCount]    = useState(0)
   const [activeChips,  setActiveChips]  = useState([])
-  const [placeholder,  setPlaceholder]  = useState(PLACEHOLDERS[0])
   const [phaseVisible, setPhaseVisible] = useState(true)
   const prevPhaseRef   = useRef(0)
   const heroRef        = useRef(null)
@@ -166,15 +163,7 @@ export default function HomePage() {
     return () => { window.removeEventListener('scroll', onScroll); cancelAnimationFrame(animFrame) }
   }, [drawFrame])
 
-  /* ── Placeholder cycling ─────────────────────────────────────────── */
-  useEffect(() => {
-    let i = 0
-    const id = setInterval(() => {
-      i = (i + 1) % PLACEHOLDERS.length
-      setPlaceholder(PLACEHOLDERS[i])
-    }, 3200)
-    return () => clearInterval(id)
-  }, [])
+
 
   /* ── Draw first frame on mount ───────────────────────────────────── */
   useEffect(() => {
@@ -190,13 +179,8 @@ export default function HomePage() {
       prev.includes(chip) ? prev.filter(c => c !== chip) : [...prev, chip]
     )
 
-  /* ── Open form (parse prompt for destination hint) ───────────────── */
+  /* ── Open form ────────────────────────────────────────────────────── */
   const openForm = () => {
-    // Simple heuristic: extract destination from prompt
-    const destMatch = promptInput.match(/(?:to|in|for)\s+([A-Z][a-zA-Z\s,]+?)(?:\s+with|\s+for|\s+budget|,|$)/i)
-    if (destMatch && destMatch[1].trim().length >= 2) {
-      setTripForm(f => ({ ...f, destination: destMatch[1].trim().replace(/,$/, '') }))
-    }
     setShowForm(true)
     setError(null)
   }
@@ -414,104 +398,20 @@ export default function HomePage() {
 
               {/* Textarea */}
               {!showForm && (
-                <>
-                  <div style={{ position: 'relative', marginBottom: 22 }}>
-                    <div style={{
-                      position: 'absolute', left: 0, top: 12, bottom: 12, width: 3,
-                      background: 'linear-gradient(to bottom, #FF9933, #138808)',
-                      borderRadius: 2, zIndex: 2,
-                    }} />
-                    <textarea
-                      className="neo-surface-inset"
-                      style={{
-                        width: '100%', minHeight: 160,
-                        padding: '18px 56px 18px 20px',
-                        borderRadius: 16, border: 'none', outline: 'none',
-                        fontFamily: 'Plus Jakarta Sans, sans-serif',
-                        fontSize: 16, lineHeight: 1.7,
-                        color: 'var(--on-surface)',
-                        resize: 'none',
-                        background: 'transparent',
-                      }}
-                      placeholder={placeholder}
-                      maxLength={500}
-                      value={promptInput}
-                      onChange={e => {
-                        setPromptInput(e.target.value)
-                        setCharCount(e.target.value.length)
-                      }}
-                    />
-                    <span style={{
-                      position: 'absolute', bottom: 14, right: 16,
-                      fontFamily: 'JetBrains Mono, monospace',
-                      fontSize: 12, color: charCount > 450 ? '#FF9933' : 'var(--outline)',
-                    }}>
-                      {charCount}/500
+                <div style={{
+                  display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', padding: '40px 0 20px',
+                }}>
+                  <button
+                    className="btn-calligraphy"
+                    onClick={openForm}
+                  >
+                    <span className="btn-calligraphy__shimmer" />
+                    <span className="btn-calligraphy__text">
+                      Generate my Itinerary
                     </span>
-                  </div>
-
-                  {/* Suggestion chips */}
-                  <div style={{ marginBottom: 28 }}>
-                    <span style={{
-                      fontSize: 11, fontWeight: 700,
-                      color: 'var(--on-surface-variant)',
-                      textTransform: 'uppercase', letterSpacing: '0.1em',
-                      marginRight: 10,
-                    }}>Suggestions:</span>
-                    <div style={{
-                      display: 'flex', flexWrap: 'wrap',
-                      gap: 10, marginTop: 12,
-                    }}>
-                      {CHIPS.map(chip => (
-                        <button
-                          key={chip}
-                          className={`chip ${activeChips.includes(chip) ? 'active' : ''}`}
-                          onClick={() => toggleChip(chip)}
-                        >
-                          {chip}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Quick option tiles */}
-                  <div style={{
-                    display: 'grid', gridTemplateColumns: 'repeat(3,1fr)',
-                    gap: 14, marginBottom: 32,
-                  }}>
-                    {[
-                      { icon: 'calendar_month', label: 'Set Dates' },
-                      { icon: 'group',          label: 'Group Size' },
-                      { icon: 'account_balance_wallet', label: 'Budget Range' },
-                    ].map(tile => (
-                      <button key={tile.label} className="neo-raised" style={{
-                        border: 'none', borderRadius: 14, padding: '14px 10px',
-                        cursor: 'pointer',
-                        display: 'flex', flexDirection: 'column',
-                        alignItems: 'center', gap: 6,
-                        transition: 'transform 0.15s, box-shadow 0.15s',
-                      }}
-                        onClick={openForm}
-                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)' }}
-                        onMouseLeave={e => { e.currentTarget.style.transform = '' }}
-                      >
-                        <span className="material-symbols-outlined" style={{ color: '#FF9933', fontSize: 22 }}>{tile.icon}</span>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface-variant)' }}>{tile.label}</span>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div style={{ borderTop: '1px solid rgba(143,78,0,0.12)', marginBottom: 28 }} />
-
-                  <button className="btn-cta" onClick={openForm} style={{
-                    width: '100%', height: 58,
-                    borderRadius: 16, fontSize: 17,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-                  }}>
-                    <span style={{ fontSize: 20 }}>✨</span>
-                    Generate My Itinerary
                   </button>
-                </>
+                </div>
               )}
 
               {/* ── Trip Details Form ── */}

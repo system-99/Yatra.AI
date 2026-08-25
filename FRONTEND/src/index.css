@@ -171,6 +171,82 @@ body {
   box-shadow: 0 2px 8px rgba(255, 153, 51, 0.3);
 }
 
+/* ── Calligraphy CTA Button ── */
+.btn-calligraphy {
+  position: relative;
+  appearance: none;
+  background: transparent;
+  border: 2px solid transparent;
+  background-image:
+    linear-gradient(var(--surface), var(--surface)),
+    linear-gradient(135deg, #FF9933, #C6A84B, #138808);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  padding: 22px 56px;
+  border-radius: 60px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.3s ease,
+              filter 0.2s ease;
+  box-shadow:
+    0 4px 20px rgba(255, 153, 51, 0.12),
+    0 1px 4px rgba(0, 0, 0, 0.06);
+}
+.btn-calligraphy:hover {
+  transform: translateY(-3px) scale(1.03);
+  box-shadow:
+    0 8px 36px rgba(255, 153, 51, 0.25),
+    0 2px 12px rgba(19, 136, 8, 0.12);
+}
+.btn-calligraphy:active {
+  transform: translateY(0) scale(0.97);
+  box-shadow: 0 2px 8px rgba(255, 153, 51, 0.18);
+}
+
+.btn-calligraphy__text {
+  position: relative;
+  z-index: 2;
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 700;
+  font-style: italic;
+  font-size: 30px;
+  letter-spacing: 0.02em;
+  background: linear-gradient(135deg, #8f4e00 0%, #FF9933 50%, #8f4e00 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: calligraphy-gradient 4s ease-in-out infinite;
+}
+
+@keyframes calligraphy-gradient {
+  0%, 100% { background-position: 0% center; }
+  50% { background-position: 200% center; }
+}
+
+.btn-calligraphy__shimmer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(255, 153, 51, 0.08) 45%,
+    rgba(198, 168, 75, 0.12) 50%,
+    rgba(255, 153, 51, 0.08) 55%,
+    transparent 70%
+  );
+  background-size: 300% 100%;
+  animation: shimmer-sweep 3.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes shimmer-sweep {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
