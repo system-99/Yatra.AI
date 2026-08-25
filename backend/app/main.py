@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from app.services.maps import calculate_route, geocode_place
 from app.services.generate import generate_from_place
 
-BACKEND_DIR = Path(__file__).resolve().parents[2]
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 load_dotenv(BACKEND_DIR / ".env")
 load_dotenv(BACKEND_DIR / ".env.local", override=True)
 
