@@ -1,9 +1,37 @@
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 const DEV_API_KEY = import.meta.env.VITE_DEV_API_KEY || '';
-const authHeaders = (json = false) => ({
-  ...(json ? { 'Content-Type': 'application/json' } : {}),
-  'X-API-Key': DEV_API_KEY,
-});
+
+export const getStoredAuth = () => {
+  try {
+    const raw = localStorage.getItem('yatra-auth');
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+export const saveAuth = (session) => {
+  if (!session) {
+    localStorage.removeItem('yatra-auth');
+    return;
+  }
+  localStorage.setItem('yatra-auth', JSON.stringify(session));
+};
+
+const authHeaders = (json = false, includeToken = true) => {
+  const session = getStoredAuth();
+  const headers = {
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+    ...(DEV_API_KEY ? { 'X-API-Key': DEV_API_KEY } : {}),
+  };
+
+  if (includeToken && session?.token) {
+    headers.Authorization = `Bearer ${session.token}`;
+  }
+
+  return headers;
+};
 
 async function handleResponse(response) {
   if (!response.ok) {
@@ -22,6 +50,29 @@ async function handleResponse(response) {
 }
 
 export const api = {
+  async registerUser(payload) {
+    const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+      method: 'POST',
+      headers: authHeaders(true, false),
+      body: JSON.stringify(payload),
+    });
+    return handleResponse(response);
+  },
+
+  async loginUser(payload) {
+    const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: authHeaders(true, false),
+      body: JSON.stringify(payload),
+    });
+    return handleResponse(response);
+  },
+
+  async getCurrentUser() {
+    const response = await fetch(`${API_BASE_URL}/api/auth/me`, { headers: authHeaders() });
+    return handleResponse(response);
+  },
+
   // Create a trip
   async createTrip(tripData) {
     const response = await fetch(`${API_BASE_URL}/api/trips/`, {

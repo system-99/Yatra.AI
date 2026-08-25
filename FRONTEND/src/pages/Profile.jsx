@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Footer } from '../components/Layout'
 import { AshokaChakra } from '../components/Layout'
+import { getStoredAuth, saveAuth } from '../services/api'
 
 const JOURNEYS = [
   { icon: 'temple_hindu', color: '#FF9933', title: 'Rajasthan Royal Tour',     meta: 'OCT 2023 • 14 DAYS' },
@@ -15,10 +16,39 @@ const NAV_ITEMS = [
   { icon: 'security',       label: 'Security' },
 ]
 
-export default function ProfilePage() {
+export default function ProfilePage({ user }) {
+  const sessionUser = getStoredAuth()?.user || user
+  const profileUser = useMemo(() => ({
+    name: sessionUser?.name || 'Traveler',
+    email: sessionUser?.email || 'traveler@example.com',
+  }), [sessionUser])
+
+  const [profileForm, setProfileForm] = useState({
+    name: profileUser.name,
+    email: profileUser.email,
+  })
+  const [statusMessage, setStatusMessage] = useState('')
   const [activeNav, setActiveNav] = useState(0)
   const [toggles, setToggles] = useState({ ws: true, auto: false, share: true })
   const toggle = (k) => setToggles(p => ({ ...p, [k]: !p[k] }))
+
+  useEffect(() => {
+    setProfileForm({
+      name: profileUser.name,
+      email: profileUser.email,
+    })
+  }, [profileUser])
+
+  const handleProfileUpdate = () => {
+    const nextName = profileForm.name.trim() || 'Traveler'
+    const nextEmail = profileForm.email.trim() || 'traveler@example.com'
+    const updatedUser = { ...(getStoredAuth()?.user || user || {}), name: nextName, email: nextEmail }
+    const nextSession = { ...(getStoredAuth() || {}), user: updatedUser }
+
+    saveAuth(nextSession)
+    window.dispatchEvent(new Event('yatra-auth-changed'))
+    setStatusMessage('Profile updated successfully.')
+  }
 
   return (
     <>
@@ -52,15 +82,40 @@ export default function ProfilePage() {
                     maskComposite: 'exclude',
                   }} />
                 </div>
-                <h2 style={{
-                  fontFamily: 'Cormorant Garamond, serif',
-                  fontSize: 22, fontWeight: 600, color: 'var(--primary)', textAlign: 'center',
-                }}>Aarav Patel</h2>
-                <span style={{
-                  fontFamily: 'JetBrains Mono, monospace', fontSize: 10,
-                  color: 'var(--on-surface-variant)', letterSpacing: '0.12em',
-                  textTransform: 'uppercase', marginTop: 4,
-                }}>Global Citizen</span>
+                <input
+                  value={profileForm.name}
+                  onChange={(e) => setProfileForm((prev) => ({ ...prev, name: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    border: '1px solid rgba(143,78,0,0.2)',
+                    borderRadius: 10,
+                    padding: '10px 12px',
+                    fontFamily: 'Cormorant Garamond, serif',
+                    fontSize: 22,
+                    fontWeight: 600,
+                    color: 'var(--primary)',
+                    textAlign: 'center',
+                    background: '#fff8f5',
+                    marginBottom: 10,
+                  }}
+                />
+                <input
+                  value={profileForm.email}
+                  onChange={(e) => setProfileForm((prev) => ({ ...prev, email: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    border: '1px solid rgba(143,78,0,0.2)',
+                    borderRadius: 10,
+                    padding: '8px 10px',
+                    fontFamily: 'JetBrains Mono, monospace',
+                    fontSize: 10,
+                    color: 'var(--on-surface-variant)',
+                    letterSpacing: '0.12em',
+                    textTransform: 'uppercase',
+                    background: '#fff8f5',
+                    textAlign: 'center',
+                  }}
+                />
               </div>
 
               {/* Nav */}
@@ -222,7 +277,10 @@ export default function ProfilePage() {
             </div>
 
             {/* Save button */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
+              {statusMessage && (
+                <span style={{ fontSize: 13, color: '#138808', fontWeight: 600 }}>{statusMessage}</span>
+              )}
               <button className="neo-raised" style={{
                 padding: '14px 36px', borderRadius: 12, border: 'none',
                 background: 'var(--primary-container)', color: '#fff',
@@ -230,6 +288,7 @@ export default function ProfilePage() {
                 fontSize: 15, fontWeight: 700, cursor: 'pointer',
                 transition: 'transform 0.15s',
               }}
+                onClick={handleProfileUpdate}
                 onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
                 onMouseLeave={e => e.currentTarget.style.transform = ''}
               >Update Profile</button>

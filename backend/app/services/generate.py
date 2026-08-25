@@ -7,9 +7,15 @@ from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
-from google import genai
-from google.genai.errors import ServerError
-from google.genai import types
+
+try:
+    from google import genai
+    from google.genai.errors import ServerError
+    from google.genai import types
+except ModuleNotFoundError:  # pragma: no cover - optional dependency in local dev/test wiring
+    genai = None
+    ServerError = RuntimeError
+    types = None
 
 from app.services.maps import search_places
 from app.services.weather_service import fetch_weather_forecast
@@ -19,8 +25,10 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BACKEND_DIR / ".env")
 
 
-def _generate_with_retry(client, prompt: str, config: types.GenerateContentConfig):
+def _generate_with_retry(client, prompt: str, config):
     """Retry temporary Gemini 503 capacity errors before failing."""
+    if genai is None or types is None:
+        raise RuntimeError("Google GenAI dependency is not installed. Please install google-genai to enable itinerary generation.")
     last_error = None
     for attempt in range(3):
         try:
@@ -42,6 +50,8 @@ def resolve_destination(user_place: str) -> dict:
     user_place = (user_place or "").strip()
     if not user_place:
         raise ValueError("A destination is required")
+    if genai is None or types is None:
+        raise RuntimeError("Google GenAI dependency is not installed. Please install google-genai to enable itinerary generation.")
     candidates = search_places(user_place, limit=5, country_set="IN")
     normalized = user_place.casefold()
     exact_city = next(

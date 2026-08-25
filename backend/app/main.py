@@ -1,4 +1,8 @@
+import hashlib
+import hmac
 import os
+import secrets
+import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -37,8 +41,54 @@ class TripRequest(BaseModel):
     pace: str = "moderate"
 
 
+class RegisterRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    email: str = Field(min_length=3)
+    password: str = Field(min_length=8)
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3)
+    password: str = Field(min_length=8)
+
+
 trips: dict[int, dict] = {}
 next_trip_id = 1
+users: dict[str, dict] = {}
+tokens: dict[str, dict] = {}
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(8)
+    digest = hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+    return f"{salt}:{digest}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    if not stored_hash or ":" not in stored_hash:
+        return False
+    salt, expected_digest = stored_hash.split(":", 1)
+    actual_digest = hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+    return hmac.compare_digest(actual_digest, expected_digest)
+
+
+def issue_token(user: dict) -> str:
+    token = secrets.token_urlsafe(32)
+    tokens[token] = {"user_id": user["id"], "email": user["email"]}
+    return token
+
+
+def get_current_user(authorization: str | None = Header(default=None)):
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    token = authorization.split(" ", 1)[1].strip()
+    session = tokens.get(token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    user = users.get(session["email"])
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
 
 
 def require_dev_key(x_api_key: str | None = Header(default=None)):
@@ -50,6 +100,47 @@ def require_dev_key(x_api_key: str | None = Header(default=None)):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/api/auth/register")
+def register(request: RegisterRequest):
+    email = request.email.strip().lower()
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="Email is invalid")
+    if email in users:
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+
+    user = {
+        "id": str(uuid.uuid4()),
+        "name": request.name.strip(),
+        "email": email,
+        "password": hash_password(request.password),
+    }
+    users[email] = user
+    token = issue_token(user)
+    return {
+        "token": token,
+        "user": {"id": user["id"], "name": user["name"], "email": user["email"]},
+    }
+
+
+@app.post("/api/auth/login")
+def login(request: LoginRequest):
+    email = request.email.strip().lower()
+    user = users.get(email)
+    if not user or not verify_password(request.password, user["password"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    token = issue_token(user)
+    return {
+        "token": token,
+        "user": {"id": user["id"], "name": user["name"], "email": user["email"]},
+    }
+
+
+@app.get("/api/auth/me")
+def me(current_user: dict = Depends(get_current_user)):
+    return {"id": current_user["id"], "name": current_user["name"], "email": current_user["email"]}
 
 
 @app.get("/api/maps/geocode")

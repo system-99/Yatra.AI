@@ -1,14 +1,59 @@
-import { useEffect } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Navbar } from './components/Layout'
 import Home from './pages/Home'
 import Itinerary from './pages/Itinerary'
 import MapPage from './pages/Map'
 import Profile from './pages/Profile'
 import Vault from './pages/Vault'
+import AuthPage from './pages/Auth'
 import Lenis from '@studio-freight/lenis'
+import { api, getStoredAuth, saveAuth } from './services/api'
+
+function ProtectedRoute({ user, children }) {
+  if (!user) {
+    return <Navigate to="/auth" replace />
+  }
+  return children
+}
 
 function App() {
+  const location = useLocation()
+  const [user, setUser] = useState(() => getStoredAuth()?.user ?? null)
+
+  const handleLogout = () => {
+    saveAuth(null)
+    setUser(null)
+  }
+
+  useEffect(() => {
+    const syncUser = () => {
+      const session = getStoredAuth()
+      if (!session?.token) {
+        setUser(null)
+        return
+      }
+
+      api.getCurrentUser().then((profile) => {
+        setUser(profile)
+        saveAuth({ token: session.token, user: profile })
+      }).catch(() => {
+        saveAuth(null)
+        setUser(null)
+      })
+    }
+
+    syncUser()
+    const handleAuthChange = () => syncUser()
+    window.addEventListener('yatra-auth-changed', handleAuthChange)
+    window.addEventListener('storage', handleAuthChange)
+
+    return () => {
+      window.removeEventListener('yatra-auth-changed', handleAuthChange)
+      window.removeEventListener('storage', handleAuthChange)
+    }
+  }, [location.pathname])
+
   useEffect(() => {
     const lenis = new Lenis({
       duration: 1.2,
@@ -39,13 +84,14 @@ function App() {
 
   return (
     <>
-      <Navbar />
+      <Navbar user={user} onLogout={handleLogout} />
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/itinerary" element={<Itinerary />} />
-        <Route path="/map" element={<MapPage />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/vault" element={<Vault />} />
+        <Route path="/auth" element={<AuthPage onAuth={setUser} />} />
+        <Route path="/itinerary" element={<ProtectedRoute user={user}><Itinerary /></ProtectedRoute>} />
+        <Route path="/map" element={<ProtectedRoute user={user}><MapPage /></ProtectedRoute>} />
+        <Route path="/profile" element={<ProtectedRoute user={user}><Profile user={user} /></ProtectedRoute>} />
+        <Route path="/vault" element={<ProtectedRoute user={user}><Vault /></ProtectedRoute>} />
       </Routes>
     </>
   )

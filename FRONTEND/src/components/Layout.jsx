@@ -1,9 +1,10 @@
 // Shared Navbar + Footer components
 import { Link, useLocation } from 'react-router-dom'
 
-export function Navbar() {
+export function Navbar({ user, onLogout }) {
   const loc = useLocation()
   const active = (path) => loc.pathname === path ? 'active' : ''
+
   return (
     <nav className="topnav">
       <div className="topnav-inner">
@@ -18,7 +19,14 @@ export function Navbar() {
           <Link to="/profile" className={active('/profile')}>Profile</Link>
           <Link to="/vault" className={active('/vault')}>Vault</Link>
         </div>
-        <button className="btn-signin">Sign In</button>
+        {user ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{user.name}</span>
+            <button className="btn-signin" onClick={onLogout} type="button">Log Out</button>
+          </div>
+        ) : (
+          <Link to="/auth" className="btn-signin" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>Sign In</Link>
+        )}
       </div>
     </nav>
   )
