@@ -1,0 +1,10 @@
+#Enviornment Variable
+.env
+.env.local
+
+__pycache__
+
+.vscode
+
+C:\Coding\Projects\Dynamic Iteniary Planner\backend\.env
+C:\Coding\Projects\Dynamic Iteniary Planner\FRONTEND\.env
