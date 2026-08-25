@@ -53,13 +53,19 @@ def resolve_destination(user_place: str) -> dict:
     if genai is None or types is None:
         raise RuntimeError("Google GenAI dependency is not installed. Please install google-genai to enable itinerary generation.")
     candidates = search_places(user_place, limit=5, country_set="IN")
+    landmark_words = {"mahal", "memorial", "gardens", "garden", "fort", "palace", "museum", "temple", "falls", "monastery"}
+    looks_like_city = len(user_place.split()) <= 2 and not landmark_words.intersection(user_place.casefold().split())
     normalized = user_place.casefold()
     exact_city = next(
         (candidate for candidate in candidates
          if str(candidate.get("municipality") or "").casefold() == normalized),
         None,
     )
-    if exact_city:
+    if looks_like_city:
+        # A plain city input should remain the city the user typed, even when
+        # TomTom returns a smaller administrative municipality as its top hit.
+        result = candidates[0]
+    elif exact_city:
         result = exact_city
     elif len(candidates) == 1 or (
         candidates[0].get("score") is not None
@@ -95,7 +101,7 @@ def resolve_destination(user_place: str) -> dict:
             raise ValueError(
                 f"The place '{user_place}' is ambiguous. Choose one of: {options}"
             ) from exc
-    city = result.get("municipality") or result.get("label")
+    city = user_place if looks_like_city else (result.get("municipality") or result.get("label"))
     country = result.get("country") or ""
     landmark = result.get("label") or user_place
     is_city = user_place.casefold() in {str(city).casefold(), str(landmark).casefold()}

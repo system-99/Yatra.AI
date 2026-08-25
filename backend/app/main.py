@@ -207,8 +207,11 @@ def generate_trip(trip_id: int, current_user: dict = Depends(get_current_user)):
             trip["interests"], str(trip["budget"]),
         )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
+        # Surface provider quota/capacity errors as an API response instead of
+        # an opaque 500 traceback in the frontend.
+        message = str(exc)
+        status = 429 if "RESOURCE_EXHAUSTED" in message or "quota" in message.lower() else 502
+        raise HTTPException(status_code=status, detail=message) from exc
     days = []
     activity_id = 1
     total_cost = 0

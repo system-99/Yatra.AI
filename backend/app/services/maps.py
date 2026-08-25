@@ -67,6 +67,7 @@ def search_places(query: str, limit: int = 5, country_set: str = "IN") -> list[d
             "label": address.get("freeformAddress") or result.get("poi", {}).get("name"),
             "country": address.get("country"),
             "municipality": address.get("municipality"),
+            "entity_type": result.get("type") or result.get("entityType"),
             "score": result.get("score"),
         })
     return candidates
