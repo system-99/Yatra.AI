@@ -37,7 +37,7 @@ export default function ProfilePage({ user }) {
       name: profileUser.name,
       email: profileUser.email,
     })
-  }, [profileUser])
+  }, [profileUser.name, profileUser.email])
 
   const handleProfileUpdate = () => {
     const nextName = profileForm.name.trim() || 'Traveler'

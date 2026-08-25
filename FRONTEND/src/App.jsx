@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { Navbar } from './components/Layout'
 import Home from './pages/Home'
 import Itinerary from './pages/Itinerary'
@@ -18,7 +18,6 @@ function ProtectedRoute({ user, children }) {
 }
 
 function App() {
-  const location = useLocation()
   const [user, setUser] = useState(() => getStoredAuth()?.user ?? null)
 
   const handleLogout = () => {
@@ -37,9 +36,11 @@ function App() {
       api.getCurrentUser().then((profile) => {
         setUser(profile)
         saveAuth({ token: session.token, user: profile })
-      }).catch(() => {
-        saveAuth(null)
-        setUser(null)
+      }).catch((error) => {
+        if (error.status === 401) {
+          saveAuth(null)
+          setUser(null)
+        }
       })
     }
 
@@ -52,7 +53,7 @@ function App() {
       window.removeEventListener('yatra-auth-changed', handleAuthChange)
       window.removeEventListener('storage', handleAuthChange)
     }
-  }, [location.pathname])
+  }, [])
 
   useEffect(() => {
     const lenis = new Lenis({
