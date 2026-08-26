@@ -1,8 +1,3 @@
-import hashlib
-import hmac
-import os
-import secrets
-import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -14,29 +9,16 @@ from pydantic import BaseModel, Field
 
 from app.services.maps import calculate_route, geocode_place
 from app.services.generate import generate_from_place, replan_itinerary
+from app.auth import get_current_user
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 load_dotenv(BACKEND_DIR / ".env")
 load_dotenv(BACKEND_DIR / ".env.local", override=True)
 
 # ── In-memory stores (no database required) ──────────────────────────────────
-# users_db:  { user_id: { "id", "name", "email", "password_hash" } }
-# tokens_db: { token_string: user_id }
 # trips_db:  { trip_id: { ...trip_data } }
-users_db: dict[str, dict] = {}
-tokens_db: dict[str, str] = {}
 trips_db: dict[int, dict] = {}
 _next_trip_id = 1
-
-
-def _hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
-
-
-def _create_token(user_id: str) -> str:
-    token = secrets.token_urlsafe(32)
-    tokens_db[token] = user_id
-    return token
 
 
 app = FastAPI(title="Dynamic Itinerary Planner API")
@@ -60,15 +42,6 @@ class TripRequest(BaseModel):
     interests: list[str] = []
     pace: str = "moderate"
 
-class RegisterRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
-    email: str = Field(min_length=3)
-    password: str = Field(min_length=8)
-
-class LoginRequest(BaseModel):
-    email: str = Field(min_length=3)
-    password: str = Field(min_length=8)
-
 class ProfileUpdateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     email: str = Field(min_length=3)
@@ -82,56 +55,9 @@ class WeatherCheckRequest(BaseModel):
     day_number: int
 
 
-def get_current_user(authorization: str | None = Header(default=None)):
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Authentication required")
-    token = authorization.split(" ", 1)[1].strip()
-    user_id = tokens_db.get(token)
-    if not user_id or user_id not in users_db:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    user = users_db[user_id]
-    return {"id": user["id"], "email": user["email"], "name": user["name"]}
-
-
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-
-@app.post("/api/auth/register")
-def register(request: RegisterRequest):
-    email = request.email.strip().lower()
-    # Check if email already exists
-    for u in users_db.values():
-        if u["email"] == email:
-            raise HTTPException(status_code=400, detail="A user with this email already exists")
-
-    user_id = str(uuid.uuid4())
-    users_db[user_id] = {
-        "id": user_id,
-        "name": request.name.strip(),
-        "email": email,
-        "password_hash": _hash_password(request.password),
-    }
-    token = _create_token(user_id)
-    return {
-        "token": token,
-        "user": {"id": user_id, "name": request.name.strip(), "email": email}
-    }
-
-
-@app.post("/api/auth/login")
-def login(request: LoginRequest):
-    email = request.email.strip().lower()
-    pw_hash = _hash_password(request.password)
-    for u in users_db.values():
-        if u["email"] == email and u["password_hash"] == pw_hash:
-            token = _create_token(u["id"])
-            return {
-                "token": token,
-                "user": {"id": u["id"], "name": u["name"], "email": u["email"]}
-            }
-    raise HTTPException(status_code=401, detail="Invalid email or password")
 
 
 @app.get("/api/auth/me")
@@ -147,15 +73,9 @@ def update_profile(request: ProfileUpdateRequest, current_user: dict = Depends(g
     if not new_name:
         raise HTTPException(status_code=400, detail="Name cannot be empty")
 
-    # Check for email conflict with other users
-    for uid, u in users_db.items():
-        if uid != current_user["id"] and u["email"] == new_email:
-            raise HTTPException(status_code=400, detail="Email already in use by another account")
-
-    user = users_db[current_user["id"]]
-    user["name"] = new_name
-    user["email"] = new_email
-    return {"id": user["id"], "name": user["name"], "email": user["email"]}
+    # Supabase owns profile writes. New clients update user metadata directly
+    # with supabase.auth.updateUser; this endpoint remains backward compatible.
+    return {"id": current_user["id"], "name": new_name, "email": new_email}
 
 
 @app.get("/api/maps/geocode")

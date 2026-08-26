@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Footer } from '../components/Layout'
 import api, { getStoredAuth, saveAuth } from '../services/api'
+import { supabase, userForApp } from '../auth/supabase'
 
 const JOURNEYS = [
   { icon: 'temple_hindu', color: '#FF9933', title: 'Rajasthan Royal Tour',     meta: 'OCT 2023 • 14 DAYS' },
@@ -43,8 +44,14 @@ export default function ProfilePage({ user }) {
     const nextEmail = profileForm.email.trim() || 'traveler@example.com'
     try {
       setStatusMessage('')
-      const updatedUser = await api.updateProfile({ name: nextName, email: nextEmail })
-      const nextSession = { ...(getStoredAuth() || {}), user: updatedUser }
+      const { data, error } = await supabase.auth.updateUser({
+        email: nextEmail,
+        data: { name: nextName },
+      })
+      if (error) throw error
+      const updatedUser = userForApp(data.user)
+      const currentSession = getStoredAuth() || {}
+      const nextSession = { ...currentSession, user: updatedUser }
 
       saveAuth(nextSession)
       window.dispatchEvent(new Event('yatra-auth-changed'))

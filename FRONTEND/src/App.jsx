@@ -8,6 +8,7 @@ import Profile from './pages/Profile'
 import AuthPage from './pages/Auth'
 import Lenis from '@studio-freight/lenis'
 import { api, getStoredAuth, saveAuth } from './services/api'
+import { supabase, userForApp } from './auth/supabase'
 
 function ProtectedRoute({ user, children }) {
   if (!user) {
@@ -19,7 +20,8 @@ function ProtectedRoute({ user, children }) {
 function App() {
   const [user, setUser] = useState(() => getStoredAuth()?.user ?? null)
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
     saveAuth(null)
     setUser(null)
   }
@@ -44,6 +46,16 @@ function App() {
     }
 
     syncUser()
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session?.user) {
+        saveAuth(null)
+        setUser(null)
+        return
+      }
+      const appUser = userForApp(session.user)
+      saveAuth({ token: session.access_token, user: appUser })
+      setUser(appUser)
+    })
     const handleAuthChange = () => syncUser()
     window.addEventListener('yatra-auth-changed', handleAuthChange)
     window.addEventListener('storage', handleAuthChange)
@@ -51,6 +63,7 @@ function App() {
     return () => {
       window.removeEventListener('yatra-auth-changed', handleAuthChange)
       window.removeEventListener('storage', handleAuthChange)
+      listener.subscription.unsubscribe()
     }
   }, [])
 

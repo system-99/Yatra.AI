@@ -48,24 +48,6 @@ async function handleResponse(response) {
 }
 
 export const api = {
-  async registerUser(payload) {
-    const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
-      method: 'POST',
-      headers: authHeaders(true, false),
-      body: JSON.stringify(payload),
-    });
-    return handleResponse(response);
-  },
-
-  async loginUser(payload) {
-    const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: authHeaders(true, false),
-      body: JSON.stringify(payload),
-    });
-    return handleResponse(response);
-  },
-
   async getCurrentUser() {
     const response = await fetch(`${API_BASE_URL}/api/auth/me`, { headers: authHeaders() });
     return handleResponse(response);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { api, getStoredAuth, saveAuth } from '../services/api'
+import { getStoredAuth, saveAuth } from '../services/api'
+import { supabase, userForApp } from '../auth/supabase'
 
 export default function AuthPage({ onAuth }) {
   const navigate = useNavigate()
@@ -37,22 +38,24 @@ export default function AuthPage({ onAuth }) {
 
     try {
       setLoading(true)
-      const payload = mode === 'register'
-        ? { name: form.name, email: form.email, password: form.password }
-        : { email: form.email, password: form.password }
-
       const result = mode === 'register'
-        ? await api.registerUser(payload)
-        : await api.loginUser(payload)
+        ? await supabase.auth.signUp({
+            email: form.email.trim(),
+            password: form.password,
+            options: { data: { name: form.name.trim() } },
+          })
+        : await supabase.auth.signInWithPassword({ email: form.email.trim(), password: form.password })
 
-      if (!result.token) {
-        setError('Account created! Please check your email to verify your account before logging in.')
+      if (result.error) throw result.error
+      if (!result.data.session) {
+        setError('Account created. Check your email to verify your account, then sign in.')
+        setMode('login')
         return
       }
 
-      const session = { token: result.token, user: result.user }
-      saveAuth(session)
-      onAuth?.(result.user)
+      const appUser = userForApp(result.data.user)
+      saveAuth({ token: result.data.session.access_token, user: appUser })
+      onAuth?.(appUser)
       navigate('/', { replace: true })
     } catch (err) {
       setError(err.message || 'Authentication failed. Please try again.')
