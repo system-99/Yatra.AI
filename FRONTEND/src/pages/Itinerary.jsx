@@ -5,7 +5,6 @@ import { AshokaChakra } from '../components/Layout'
 import api from '../services/api'
 import { useTripWebSocket } from '../hooks/useTripWebSocket'
 
-/* ── Category → icon mapping ─────────────────────────────────────────── */
 const CATEGORY_ICON = {
   sightseeing: 'explore',
   culture:     'museum',
@@ -29,7 +28,6 @@ const CATEGORY_COLOR = {
   default:     '#887364',
 }
 
-/* ── Disruption types ────────────────────────────────────────────────── */
 const DISRUPTION_TYPES = [
   { value: 'weather',       label: '🌧️ Bad Weather' },
   { value: 'venue_closure', label: '🚫 Venue Closed' },
@@ -49,23 +47,21 @@ export default function ItineraryPage() {
   const [feedItems, setFeedItems]       = useState([])
   const [replanning, setReplanning]     = useState(false)
   const [replanError, setReplanError]   = useState(null)
+  
+  const [tripsList, setTripsList]       = useState(null)
 
-  /* Disruption form */
-  const [showDisruptionForm, setShowDisruptionForm] = useState(false)
+    const [showDisruptionForm, setShowDisruptionForm] = useState(false)
   const [disruptionType, setDisruptionType]         = useState('weather')
   const [disruptionDesc, setDisruptionDesc]         = useState('')
   const [disruptionDay,  setDisruptionDay]          = useState(1)
 
-  /* ── Fetch trip detail ─────────────────────────────────────────────── */
-  const fetchTrip = useCallback(async () => {
+    const fetchTrip = useCallback(async () => {
     if (!tripId) return
     try {
       setLoading(true)
       setError(null)
       const data = await api.getTripDetail(tripId)
       setTripDetail(data)
-
-      // Seed feed with any existing disruption history
       if (data.disruptions && data.disruptions.length > 0) {
         const historyItems = data.disruptions.map(d => ({
           type: 'success',
@@ -96,12 +92,13 @@ export default function ItineraryPage() {
       fetchTrip()
     } else {
       setLoading(false)
-      setError('No trip selected. Please create a trip from the home page.')
+      api.listTrips()
+        .then(setTripsList)
+        .catch(() => setError('Failed to load trips.'))
     }
   }, [tripId, fetchTrip])
 
-  /* ── WebSocket live updates ────────────────────────────────────────── */
-  const handleWebSocketEvent = useCallback((event) => {
+    const handleWebSocketEvent = useCallback((event) => {
     if (event.event === 'itinerary_replanned') {
       setFeedItems(prev => [{
         type: 'success',
@@ -112,17 +109,27 @@ export default function ItineraryPage() {
         msg: event.explanation || 'Itinerary was dynamically replanned.',
         changes: event.changes_summary || [],
       }, ...prev])
-      // Reload fresh itinerary data
       fetchTrip()
     } else if (event.event === 'pong') {
-      // Keep-alive pong — ignore silently
     }
   }, [fetchTrip])
 
   const { connected } = useTripWebSocket(tripId ? parseInt(tripId) : null, handleWebSocketEvent)
 
-  /* ── Manual replan ─────────────────────────────────────────────────── */
-  const handleReplan = async (e) => {
+    const handleDeleteTrip = async (e, id) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (window.confirm('Are you sure you want to delete this trip?')) {
+      try {
+        await api.deleteTrip(id);
+        setTripsList(prev => prev.filter(t => t.id !== id));
+      } catch (err) {
+        alert('Failed to delete trip: ' + err.message);
+      }
+    }
+  }
+
+    const handleReplan = async (e) => {
     e.preventDefault()
     if (replanning || !tripId) return
     setReplanning(true)
@@ -134,8 +141,6 @@ export default function ItineraryPage() {
         description: disruptionDesc || `Disruption: ${disruptionType}`,
         affected_day: disruptionDay || null,
       })
-
-      // Add to feed
       setFeedItems(prev => [{
         type: 'success',
         icon: 'auto_awesome',
@@ -145,8 +150,6 @@ export default function ItineraryPage() {
         msg: result.explanation || 'Itinerary successfully updated.',
         changes: result.changes_summary || [],
       }, ...prev])
-
-      // Reload fresh data
       await fetchTrip()
       setShowDisruptionForm(false)
       setDisruptionDesc('')
@@ -158,13 +161,11 @@ export default function ItineraryPage() {
     }
   }
 
-  /* ── Derived stats ─────────────────────────────────────────────────── */
-  const totalDays      = tripDetail?.total_days || 0
+    const totalDays      = tripDetail?.total_days || 0
   const totalCost      = tripDetail?.total_estimated_cost || 0
   const budgetUsedPct  = tripDetail ? Math.min(100, Math.round((totalCost / tripDetail.budget) * 100)) : 0
 
-  /* ── Render helpers ────────────────────────────────────────────────── */
-  if (loading) {
+    if (loading) {
     return (
       <div className="page-content" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '80vh', gap: 20 }}>
         <div style={{ position: 'relative' }}>
@@ -187,11 +188,80 @@ export default function ItineraryPage() {
         <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: 28, color: 'var(--error)', textAlign: 'center' }}>
           {error}
         </h2>
-        <Link to="/" className="btn-cta" style={{ padding: '14px 32px', borderRadius: 12, fontSize: 16, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <Link to="/#planner" className="btn-cta" style={{ padding: '14px 32px', borderRadius: 12, fontSize: 16, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 20 }}>arrow_back</span>
           Plan a New Trip
         </Link>
       </div>
+    )
+  }
+  if (!tripId) {
+    return (
+      <>
+        <div className="page-content" style={{ background: '#F4F4F4', minHeight: 'calc(100vh - 64px)' }}>
+          <main style={{ padding: '40px', maxWidth: 1280, margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+              <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: 40, fontWeight: 700, color: 'var(--primary)' }}>My Trips</h2>
+              <Link to="/#planner" className="btn-cta" style={{ padding: '10px 20px', borderRadius: 8, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span> Plan New
+              </Link>
+            </div>
+            
+            {!tripsList ? (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '60px' }}>
+                <AshokaChakra size={60} opacity={0.5} />
+              </div>
+            ) : tripsList.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '80px 20px', background: '#fff', borderRadius: 16, border: '1px solid rgba(143,78,0,0.1)' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 48, color: 'var(--outline)', marginBottom: 16 }}>flight_takeoff</span>
+                <p style={{ fontSize: 16, color: 'var(--on-surface-variant)', marginBottom: 24 }}>You haven't planned any trips yet.</p>
+                <Link to="/#planner" className="btn-calligraphy" style={{ textDecoration: 'none', display: 'inline-block' }}>
+                  <span className="btn-calligraphy__text">Plan a Trip</span>
+                </Link>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 24 }}>
+                {tripsList.map(t => (
+                  <Link to={`/itinerary?tripId=${t.id}`} key={t.id} className="neo-raised" style={{ textDecoration: 'none', color: 'inherit', padding: '24px', borderRadius: '16px', display: 'block', transition: 'transform 0.2s', ':hover': { transform: 'translateY(-4px)' } }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                      <h3 style={{ fontFamily: 'Cormorant Garamond', fontSize: 24, fontWeight: 700, color: 'var(--on-surface)', margin: 0 }}>{t.destination}</h3>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '4px 8px', borderRadius: 999, background: 'rgba(255,153,51,0.1)', color: '#FF9933', textTransform: 'uppercase' }}>{t.status}</span>
+                        <button 
+                          onClick={(e) => handleDeleteTrip(e, t.id)}
+                          style={{
+                            background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--error)',
+                            borderRadius: '50%', transition: 'background 0.2s'
+                          }}
+                          title="Delete Trip"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
+                        </button>
+                      </div>
+                    </div>
+                    <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', display: 'flex', gap: 6, alignItems: 'center', marginBottom: 16, fontFamily: 'JetBrains Mono, monospace' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>calendar_month</span>
+                      {t.start_date}
+                    </p>
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <div style={{ flex: 1, padding: '10px', background: 'rgba(143,78,0,0.04)', borderRadius: 8, textAlign: 'center' }}>
+                        <div style={{ fontSize: 11, color: 'var(--outline)', fontWeight: 700, letterSpacing: '0.05em' }}>DAYS</div>
+                        <div style={{ fontSize: 16, color: 'var(--on-surface)', fontWeight: 600, fontFamily: 'JetBrains Mono, monospace' }}>{t.total_days}</div>
+                      </div>
+                      <div style={{ flex: 1, padding: '10px', background: 'rgba(143,78,0,0.04)', borderRadius: 8, textAlign: 'center' }}>
+                        <div style={{ fontSize: 11, color: 'var(--outline)', fontWeight: 700, letterSpacing: '0.05em' }}>BUDGET</div>
+                        <div style={{ fontSize: 16, color: 'var(--on-surface)', fontWeight: 600, fontFamily: 'JetBrains Mono, monospace' }}>₹{(t.budget/1000).toFixed(0)}k</div>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </main>
+        </div>
+        <Footer />
+      </>
     )
   }
 
@@ -205,7 +275,7 @@ export default function ItineraryPage() {
       <div className="page-content" style={{ background: '#F4F4F4' }}>
         <main style={{ padding: '32px 40px 80px', maxWidth: 1280, margin: '0 auto' }}>
 
-          {/* ── Hero banner ── */}
+          {}
           <header style={{
             borderRadius: 16, overflow: 'hidden',
             height: 280, position: 'relative', marginBottom: 28,
@@ -216,7 +286,7 @@ export default function ItineraryPage() {
               position: 'absolute', inset: 0,
               background: 'linear-gradient(to top, rgba(35,26,19,0.9) 0%, rgba(35,26,19,0.2) 100%)',
             }} />
-            {/* Background Chakra watermark */}
+            {}
             <div style={{ position: 'absolute', top: '50%', right: '-60px', transform: 'translateY(-50%)', pointerEvents: 'none', opacity: 0.06 }}>
               <AshokaChakra size={320} opacity={1} />
             </div>
@@ -247,7 +317,7 @@ export default function ItineraryPage() {
                   {trip.start_date} – {trip.end_date}
                 </p>
               </div>
-              {/* Live/WS status indicator */}
+              {}
               <div className="neo-raised" style={{
                 display: 'flex', alignItems: 'center', gap: 8,
                 padding: '8px 20px', borderRadius: 999,
@@ -269,7 +339,7 @@ export default function ItineraryPage() {
             </div>
           </header>
 
-          {/* ── Stats tiles ── */}
+          {}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 18, marginBottom: 28 }}>
             {[
               { icon: 'calendar_view_week',      color: '#FF9933', label: 'TOTAL DAYS',       value: `${totalDays} Days` },
@@ -302,10 +372,10 @@ export default function ItineraryPage() {
             ))}
           </div>
 
-          {/* ── Main grid ── */}
+          {}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 24 }}>
 
-            {/* Left: Timeline */}
+            {}
             <div>
               <h2 style={{
                 fontFamily: 'Cormorant Garamond, serif',
@@ -332,10 +402,10 @@ export default function ItineraryPage() {
               )}
             </div>
 
-            {/* Right: AI Sidebar */}
+            {}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
 
-              {/* Budget progress */}
+              {}
               <div className="glass-surface" style={{ borderRadius: 16, padding: 20 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -361,7 +431,7 @@ export default function ItineraryPage() {
                 </div>
               </div>
 
-              {/* Chakra AI Feed */}
+              {}
               <div className="glass-surface" style={{ borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 <div style={{
                   padding: '16px 20px',
@@ -419,7 +489,7 @@ export default function ItineraryPage() {
                   )}
                 </div>
 
-                {/* Disruption form */}
+                {}
                 {showDisruptionForm && (
                   <form onSubmit={handleReplan} style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div style={{ borderTop: '1px solid rgba(143,78,0,0.12)', paddingTop: 14 }}>
@@ -475,7 +545,7 @@ export default function ItineraryPage() {
                   </form>
                 )}
 
-                {/* Action buttons */}
+                {}
                 <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <button className="btn-cta" style={{
                     width: '100%', padding: '14px', borderRadius: 10, fontSize: 15,
@@ -484,7 +554,7 @@ export default function ItineraryPage() {
                     <span className={`material-symbols-outlined ${replanning ? 'spin-fast' : ''}`} style={{ fontSize: 20 }}>sync</span>
                     {showDisruptionForm ? 'Hide Form' : 'Replan My Trip'}
                   </button>
-                  <Link to="/" className="neo-raised" style={{
+                  <Link to="/#planner" className="neo-raised" style={{
                     width: '100%', padding: '14px', borderRadius: 10, fontSize: 15, fontWeight: 700,
                     border: '2px solid #000080', color: '#000080', background: 'transparent',
                     cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
@@ -496,7 +566,7 @@ export default function ItineraryPage() {
                 </div>
               </div>
 
-              {/* Trip info card */}
+              {}
               <div className="glass-surface" style={{ borderRadius: 16, padding: 20 }}>
                 <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, fontWeight: 700, color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>Trip Details</p>
                 {[

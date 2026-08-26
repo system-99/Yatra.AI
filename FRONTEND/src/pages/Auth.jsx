@@ -134,9 +134,7 @@ export default function AuthPage({ onAuth }) {
           </button>
         </div>
 
-        <div style={{ marginTop: 18, textAlign: 'center' }}>
-          <Link to="/" style={{ color: '#554336', fontSize: 14, textDecoration: 'none' }}>← Back to home</Link>
-        </div>
+
       </div>
     </div>
   )

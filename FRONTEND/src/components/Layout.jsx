@@ -1,4 +1,4 @@
-// Shared Navbar + Footer components
+
 import { Link, useLocation } from 'react-router-dom'
 
 export function Navbar({ user, onLogout }) {

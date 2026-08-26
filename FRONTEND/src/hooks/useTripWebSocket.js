@@ -8,16 +8,12 @@ export function useTripWebSocket(tripId, onEventReceived) {
   const socketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const onEventReceivedRef = useRef(onEventReceived);
-
-  // Keep callback reference updated to avoid re-triggering effects
   useEffect(() => {
     onEventReceivedRef.current = onEventReceived;
   }, [onEventReceived]);
 
   const connect = useCallback(() => {
     if (!tripId) return;
-
-    // Close existing connection if any
     if (socketRef.current) {
       socketRef.current.close();
     }
@@ -48,8 +44,6 @@ export function useTripWebSocket(tripId, onEventReceived) {
     socket.onclose = (event) => {
       console.log(`WebSocket disconnected for trip ${tripId}. Code: ${event.code}`);
       setConnected(false);
-      
-      // Attempt reconnection after 5 seconds if not closed intentionally
       if (event.code !== 1000) {
         reconnectTimeoutRef.current = setTimeout(() => {
           console.log('Attempting WebSocket reconnect...');
@@ -66,8 +60,6 @@ export function useTripWebSocket(tripId, onEventReceived) {
 
   useEffect(() => {
     connect();
-
-    // Ping interval to keep connection alive
     const pingInterval = setInterval(() => {
       if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
         socketRef.current.send(JSON.stringify({ action: 'ping' }));
@@ -80,7 +72,6 @@ export function useTripWebSocket(tripId, onEventReceived) {
         clearTimeout(reconnectTimeoutRef.current);
       }
       if (socketRef.current) {
-        // Code 1000: Normal Closure
         socketRef.current.close(1000);
       }
     };

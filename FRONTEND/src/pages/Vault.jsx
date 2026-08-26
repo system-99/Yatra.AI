@@ -34,7 +34,7 @@ export default function VaultPage() {
       <div className="page-content" style={{ background: '#F4F4F4' }}>
         <main style={{ padding: '40px 40px 80px', maxWidth: 1280, margin: '0 auto', position: 'relative' }}>
 
-          {/* Ashoka watermark */}
+          {}
           <div style={{
             position: 'fixed', top: '20%', right: 0,
             width: 400, height: 400, marginRight: '-150px',
@@ -50,7 +50,7 @@ export default function VaultPage() {
             </svg>
           </div>
 
-          {/* Header */}
+          {}
           <div style={{ marginBottom: 40, position: 'relative', zIndex: 2 }}>
             <h1 style={{
               fontFamily: 'Cormorant Garamond, serif',
@@ -63,10 +63,10 @@ export default function VaultPage() {
             </p>
           </div>
 
-          {/* Bento grid */}
+          {}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 28, position: 'relative', zIndex: 2 }}>
 
-            {/* Left: Active bookings */}
+            {}
             <div>
               <h2 style={{
                 fontFamily: 'Cormorant Garamond, serif', fontSize: 28, fontWeight: 600,
@@ -84,7 +84,7 @@ export default function VaultPage() {
               </div>
             </div>
 
-            {/* Right: Digital documents */}
+            {}
             <div>
               <div style={{ position: 'sticky', top: 96 }}>
                 <h2 style={{
@@ -127,7 +127,7 @@ export default function VaultPage() {
                     </button>
                   ))}
 
-                  {/* Add document */}
+                  {}
                   <button className="btn-cta" style={{
                     width: '100%', padding: '12px', borderRadius: 12, fontSize: 14,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
@@ -143,7 +143,7 @@ export default function VaultPage() {
         </main>
       </div>
 
-      {/* FAB */}
+      {}
       <button
         style={{
           position: 'fixed', bottom: 32, right: 40, zIndex: 100,
@@ -180,9 +180,9 @@ function BookingCard({ booking: b }) {
         onMouseLeave={() => setHov(false)}
       >
         <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
-          {/* Content */}
+          {}
           <div style={{ flex: 1 }}>
-            {/* Badge + title */}
+            {}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
               <div style={{
                 width: 40, height: 40, borderRadius: '50%',
@@ -201,7 +201,7 @@ function BookingCard({ booking: b }) {
               </div>
             </div>
 
-            {/* Dep / Arr */}
+            {}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 18 }}>
               {[b.dep, b.arr].map((seg, i) => (
                 <div key={i}>
@@ -212,7 +212,7 @@ function BookingCard({ booking: b }) {
               ))}
             </div>
 
-            {/* Tags */}
+            {}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {b.tags.map(tag => (
                 <span key={tag} style={{
@@ -226,7 +226,7 @@ function BookingCard({ booking: b }) {
             </div>
           </div>
 
-          {/* QR code */}
+          {}
           {b.qr && (
             <div style={{
               width: 140, flexShrink: 0,

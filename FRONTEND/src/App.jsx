@@ -99,7 +99,7 @@ function App() {
     <>
       <Navbar user={user} onLogout={handleLogout} />
       <Routes>
-        <Route path="/" element={<Home user={user} />} />
+        <Route path="/" element={<ProtectedRoute user={user}><Home user={user} /></ProtectedRoute>} />
         <Route path="/auth" element={<AuthPage onAuth={setUser} />} />
         <Route path="/itinerary" element={<ProtectedRoute user={user}><Itinerary /></ProtectedRoute>} />
         <Route path="/map" element={<ProtectedRoute user={user}><MapPage /></ProtectedRoute>} />

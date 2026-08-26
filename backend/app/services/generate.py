@@ -12,7 +12,7 @@ try:
     from google import genai
     from google.genai.errors import ServerError
     from google.genai import types
-except ModuleNotFoundError:  # pragma: no cover - optional dependency in local dev/test wiring
+except ModuleNotFoundError:
     genai = None
     ServerError = RuntimeError
     types = None
@@ -62,8 +62,6 @@ def resolve_destination(user_place: str) -> dict:
         None,
     )
     if looks_like_city:
-        # A plain city input should remain the city the user typed, even when
-        # TomTom returns a smaller administrative municipality as its top hit.
         result = candidates[0]
     elif exact_city:
         result = exact_city

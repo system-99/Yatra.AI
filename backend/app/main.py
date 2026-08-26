@@ -9,16 +9,18 @@ from pydantic import BaseModel, Field
 
 from app.services.maps import calculate_route, geocode_place
 from app.services.generate import generate_from_place, replan_itinerary
+from app.services.supabase_db import (
+    create_trip as db_create_trip,
+    get_trip as db_get_trip,
+    list_user_trips as db_list_user_trips,
+    update_trip as db_update_trip,
+    delete_trip as db_delete_trip,
+)
 from app.auth import get_current_user
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 load_dotenv(BACKEND_DIR / ".env")
 load_dotenv(BACKEND_DIR / ".env.local", override=True)
-
-# ── In-memory stores (no database required) ──────────────────────────────────
-# trips_db:  { trip_id: { ...trip_data } }
-trips_db: dict[int, dict] = {}
-_next_trip_id = 1
 
 
 app = FastAPI(title="Dynamic Itinerary Planner API")
@@ -72,9 +74,6 @@ def update_profile(request: ProfileUpdateRequest, current_user: dict = Depends(g
 
     if not new_name:
         raise HTTPException(status_code=400, detail="Name cannot be empty")
-
-    # Supabase owns profile writes. New clients update user metadata directly
-    # with supabase.auth.updateUser; this endpoint remains backward compatible.
     return {"id": current_user["id"], "name": new_name, "email": new_email}
 
 
@@ -94,30 +93,29 @@ def route(request: RouteRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/trips/")
+def list_trips(current_user: dict = Depends(get_current_user)):
+    return db_list_user_trips(current_user["id"])
+
+
 @app.post("/api/trips/")
 def create_trip(request: TripRequest, current_user: dict = Depends(get_current_user)):
-    global _next_trip_id
-    trip_id = _next_trip_id
-    _next_trip_id += 1
-
     trip_data = request.model_dump()
-    trip_data["id"] = trip_id
-    trip_data["user_id"] = current_user["id"]
-    trip_data["status"] = "created"
-    trip_data["days"] = []
-    trip_data["disruptions"] = []
-    trip_data["weather_forecast"] = None
-    trip_data["total_days"] = 0
-    trip_data["total_estimated_cost"] = 0
-    trip_data["weather_summary"] = None
+    return db_create_trip(current_user["id"], trip_data)
 
-    trips_db[trip_id] = trip_data
-    return trip_data
+
+@app.delete("/api/trips/{trip_id}")
+def delete_trip(trip_id: int, current_user: dict = Depends(get_current_user)):
+    trip = db_get_trip(trip_id)
+    if not trip or trip["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    db_delete_trip(trip_id)
+    return {"status": "deleted", "id": trip_id}
 
 
 @app.post("/api/trips/{trip_id}/generate")
 def generate_trip(trip_id: int, current_user: dict = Depends(get_current_user)):
-    trip = trips_db.get(trip_id)
+    trip = db_get_trip(trip_id)
     if not trip or trip["user_id"] != current_user["id"]:
         raise HTTPException(status_code=404, detail="Trip not found")
 
@@ -127,8 +125,6 @@ def generate_trip(trip_id: int, current_user: dict = Depends(get_current_user)):
             trip["interests"], str(trip["budget"]),
         )
     except Exception as exc:
-        # Surface provider quota/capacity errors as an API response instead of
-        # an opaque 500 traceback in the frontend.
         message = str(exc)
         status = 429 if "RESOURCE_EXHAUSTED" in message or "quota" in message.lower() else 502
         raise HTTPException(status_code=status, detail=message) from exc
@@ -176,33 +172,99 @@ def generate_trip(trip_id: int, current_user: dict = Depends(get_current_user)):
             "activities": activities,
         })
 
-    trip["destination"] = result.get("destination", trip["destination"])
-    trip["days"] = days
-    trip["total_days"] = len(days)
-    trip["total_estimated_cost"] = total_cost
-    trip["status"] = "generated"
-    trip["weather_summary"] = result.get("weather_summary")
+    db_update_trip(trip_id, {
+        "destination": result.get("destination", trip["destination"]),
+        "days": days,
+        "total_days": len(days),
+        "total_estimated_cost": total_cost,
+        "status": "generated",
+        "weather_summary": result.get("weather_summary"),
+    })
 
     return {"id": trip_id, "status": "generated"}
 
 
 @app.get("/api/trips/{trip_id}")
 def get_trip(trip_id: int, current_user: dict = Depends(get_current_user)):
-    trip = trips_db.get(trip_id)
+    trip = db_get_trip(trip_id)
     if not trip or trip["user_id"] != current_user["id"]:
         raise HTTPException(status_code=404, detail="Trip not found")
     return trip
 
 
+@app.delete("/api/trips/{trip_id}")
+def delete_trip(trip_id: int, current_user: dict = Depends(get_current_user)):
+    trip = db_get_trip(trip_id)
+    if not trip or trip["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    success = db_delete_trip(trip_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete trip")
+    return {"message": "Trip deleted successfully"}
+
+
+@app.get("/api/trips/{trip_id}/geocoded-days")
+def get_geocoded_days(trip_id: int, current_user: dict = Depends(get_current_user)):
+    trip = db_get_trip(trip_id)
+    if not trip or trip["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    cached = trip.get("geocoded_days")
+    if cached:
+        return {"trip_id": trip_id, "destination": trip["destination"], "days": cached}
+
+    days_data = trip.get("days") or []
+    if not days_data:
+        return {"trip_id": trip_id, "destination": trip["destination"], "days": []}
+
+    geocoded_days = []
+    location_cache = {}
+
+    for day in days_data:
+        g_day = {
+            "day_number": day.get("day_number"),
+            "date": day.get("date"),
+            "theme": day.get("theme", "Exploring"),
+            "locations": []
+        }
+        for act in day.get("activities", []):
+            loc_str = act.get("location") or act.get("title")
+            if not loc_str:
+                continue
+
+            lat, lng = None, None
+            if loc_str in location_cache:
+                lat, lng = location_cache[loc_str]
+            else:
+                try:
+                    res = geocode_place(f"{loc_str}, {trip['destination']}")
+                    lat = res["latitude"]
+                    lng = res["longitude"]
+                    location_cache[loc_str] = (lat, lng)
+                except Exception:
+                    pass
+
+            if lat is not None and lng is not None:
+                g_day["locations"].append({
+                    "title": act.get("title"),
+                    "lat": lat,
+                    "lng": lng,
+                    "category": act.get("category"),
+                    "time_slot": act.get("time_slot"),
+                    "description": act.get("description")
+                })
+        geocoded_days.append(g_day)
+
+    db_update_trip(trip_id, {"geocoded_days": geocoded_days})
+    return {"trip_id": trip_id, "destination": trip["destination"], "days": geocoded_days}
+
+
 @app.get("/api/trips/{trip_id}/itinerary")
 def get_itinerary(trip_id: int, current_user: dict = Depends(get_current_user)):
-    trip = trips_db.get(trip_id)
+    trip = db_get_trip(trip_id)
     if not trip or trip["user_id"] != current_user["id"]:
         raise HTTPException(status_code=404, detail="Trip not found")
     return {"id": trip["id"], "destination": trip["destination"], "days": trip["days"]}
-
-
-# Active WebSocket connections
 active_connections: dict[int, list[WebSocket]] = {}
 
 @app.websocket("/ws/trips/{trip_id}")
@@ -213,7 +275,6 @@ async def websocket_endpoint(websocket: WebSocket, trip_id: int):
     active_connections[trip_id].append(websocket)
     try:
         while True:
-            # Client sends keepalive pings
             data = await websocket.receive_text()
             try:
                 msg = json.loads(data)
@@ -244,7 +305,7 @@ async def broadcast_replan(trip_id: int, explanation: str, changes_summary: list
 
 @app.post("/api/trips/{trip_id}/disruptions/replan")
 async def replan_trip(trip_id: int, request: DisruptionRequest, current_user: dict = Depends(get_current_user)):
-    trip = trips_db.get(trip_id)
+    trip = db_get_trip(trip_id)
     if not trip or trip["user_id"] != current_user["id"]:
         raise HTTPException(status_code=404, detail="Trip not found")
 
@@ -345,9 +406,11 @@ async def replan_trip(trip_id: int, request: DisruptionRequest, current_user: di
     disruptions = trip.get("disruptions") or []
     disruptions.append(disruption_record)
 
-    trip["days"] = new_days
-    trip["disruptions"] = disruptions
-    trip["total_estimated_cost"] = total_cost
+    db_update_trip(trip_id, {
+        "days": new_days,
+        "disruptions": disruptions,
+        "total_estimated_cost": total_cost,
+    })
 
     await broadcast_replan(
         trip_id=trip_id,
@@ -364,7 +427,7 @@ async def replan_trip(trip_id: int, request: DisruptionRequest, current_user: di
 
 @app.post("/api/trips/{trip_id}/disruptions/check-weather")
 async def check_weather(trip_id: int, request: WeatherCheckRequest, current_user: dict = Depends(get_current_user)):
-    trip = trips_db.get(trip_id)
+    trip = db_get_trip(trip_id)
     if not trip or trip["user_id"] != current_user["id"]:
         raise HTTPException(status_code=404, detail="Trip not found")
 
@@ -373,7 +436,7 @@ async def check_weather(trip_id: int, request: WeatherCheckRequest, current_user
         from app.services.weather_service import fetch_weather_forecast
         try:
             weather = fetch_weather_forecast(trip["destination"], days=len(trip.get("days", [])))
-            trip["weather_forecast"] = weather
+            db_update_trip(trip_id, {"weather_forecast": weather})
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Failed to fetch weather: {exc}")
 
@@ -406,7 +469,7 @@ async def check_weather(trip_id: int, request: WeatherCheckRequest, current_user
 
 @app.get("/api/trips/{trip_id}/disruptions")
 def get_disruptions(trip_id: int, current_user: dict = Depends(get_current_user)):
-    trip = trips_db.get(trip_id)
+    trip = db_get_trip(trip_id)
     if not trip or trip["user_id"] != current_user["id"]:
         raise HTTPException(status_code=404, detail="Trip not found")
     return trip.get("disruptions", [])

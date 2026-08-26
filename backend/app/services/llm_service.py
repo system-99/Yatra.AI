@@ -6,8 +6,6 @@ from google.genai import types
 from huggingface_hub import InferenceClient
 import json
 from weather_service import fetch_weather_details
-
-##Loading .env file(containing API keys)
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BACKEND_DIR / ".env")
 

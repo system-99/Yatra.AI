@@ -1,18 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { AshokaChakra, Footer } from '../components/Layout'
 import api, { getStoredAuth } from '../services/api'
 
-/* ── Frame sequence config ──────────────────────────────────────────── */
-const FRAME_COUNT  = 208          // frames 001 → 208
+const FRAME_COUNT  = 208
 const FRAME_START  = 1
-const SCROLL_HEIGHT = '600vh'     // total sticky scroll distance
+const SCROLL_HEIGHT = '600vh'
 
 function frameSrc(n) {
   return `/frames/ezgif-frame-${String(n).padStart(3, '0')}.jpg`
 }
 
-/* ── Scroll-phase text content ──────────────────────────────────────── */
 const PHASES = [
   {
     headline: 'Discover India, Reimagined',
@@ -42,7 +40,6 @@ const PHASES = [
   },
 ]
 
-/* ── Suggestion chips ────────────────────────────────────────────────── */
 const CHIPS = [
   '🏔️ Hill Stations', '🏖️ Beaches', '🕌 Heritage Sites',
   '🚂 Train Journey', '🌿 Nature & Wildlife', '🎭 Cultural Experience',
@@ -56,7 +53,6 @@ const PLACEHOLDERS = [
   'Solo backpacking through Northeast India — Meghalaya, Sikkim, Arunachal...',
 ]
 
-/* ── Interest categories mapped from chips ─────────────────────────── */
 const CHIP_TO_INTEREST = {
   '🏔️ Hill Stations':      'nature',
   '🏖️ Beaches':            'nature',
@@ -69,7 +65,6 @@ const CHIP_TO_INTEREST = {
   '🍛 Food Trail':         'food',
 }
 
-/* ── Helper: today + N days ─────────────────────────────────────────── */
 function dateOffset(days) {
   const d = new Date()
   d.setDate(d.getDate() + days)
@@ -78,9 +73,18 @@ function dateOffset(days) {
 
 export default function HomePage({ user }) {
   const navigate = useNavigate()
+  const location = useLocation()
 
-  /* canvas scroll state */
-  const canvasRef      = useRef(null)
+    useEffect(() => {
+    if (location.hash === '#planner') {
+      const el = document.getElementById('planner')
+      if (el) {
+        setTimeout(() => el.scrollIntoView({ behavior: 'smooth' }), 100)
+      }
+    }
+  }, [location])
+
+    const canvasRef      = useRef(null)
   const imagesRef      = useRef([])
   const loadedRef      = useRef(0)
   const [activePhase,  setActivePhase]  = useState(0)
@@ -89,8 +93,7 @@ export default function HomePage({ user }) {
   const prevPhaseRef   = useRef(0)
   const heroRef        = useRef(null)
 
-  /* trip form state */
-  const [showForm,     setShowForm]     = useState(false)
+    const [showForm,     setShowForm]     = useState(false)
   const [loading,      setLoading]      = useState(false)
   const [error,        setError]        = useState(null)
   const [tripForm,     setTripForm]     = useState({
@@ -101,8 +104,7 @@ export default function HomePage({ user }) {
     pace: 'moderate',
   })
 
-  /* ── Pre-load all frames ─────────────────────────────────────────── */
-  useEffect(() => {
+    useEffect(() => {
     const imgs = []
     for (let i = 0; i < FRAME_COUNT; i++) {
       const img = new Image()
@@ -113,8 +115,7 @@ export default function HomePage({ user }) {
     imagesRef.current = imgs
   }, [])
 
-  /* ── Draw frame to canvas ─────────────────────────────────────────── */
-  const drawFrame = useCallback((idx) => {
+    const drawFrame = useCallback((idx) => {
     const canvas = canvasRef.current
     if (!canvas) return
     const img = imagesRef.current[idx]
@@ -136,8 +137,7 @@ export default function HomePage({ user }) {
     ctx.drawImage(img, sx, sy, sw, sh)
   }, [])
 
-  /* ── Scroll handler ───────────────────────────────────────────────── */
-  useEffect(() => {
+    useEffect(() => {
     let animFrame
     const onScroll = () => {
       cancelAnimationFrame(animFrame)
@@ -165,22 +165,19 @@ export default function HomePage({ user }) {
 
 
 
-  /* ── Draw first frame on mount ───────────────────────────────────── */
-  useEffect(() => {
+    useEffect(() => {
     const img = new Image()
     img.src = frameSrc(FRAME_START)
     img.onload = () => drawFrame(0)
     imagesRef.current[0] = img
   }, [drawFrame])
 
-  /* ── Chip toggle ──────────────────────────────────────────────────── */
-  const toggleChip = (chip) =>
+    const toggleChip = (chip) =>
     setActiveChips(prev =>
       prev.includes(chip) ? prev.filter(c => c !== chip) : [...prev, chip]
     )
 
-  /* ── Open form ────────────────────────────────────────────────────── */
-  const openForm = () => {
+    const openForm = () => {
     if (!user) {
       navigate('/auth')
       return
@@ -189,8 +186,7 @@ export default function HomePage({ user }) {
     setError(null)
   }
 
-  /* ── Submit trip to backend ───────────────────────────────────────── */
-  const handleSubmit = async (e) => {
+    const handleSubmit = async (e) => {
     e.preventDefault()
     if (loading) return
     setError(null)
@@ -200,8 +196,6 @@ export default function HomePage({ user }) {
       navigate('/auth')
       return
     }
-
-    // Validate required fields
     if (!tripForm.destination || tripForm.destination.trim().length < 2) {
       setError('Please enter a valid destination (at least 2 characters).')
       return
@@ -214,8 +208,6 @@ export default function HomePage({ user }) {
       setError('Budget must be a positive number.')
       return
     }
-
-    // Build interests from active chips
     const interests = [...new Set(
       activeChips.map(c => CHIP_TO_INTEREST[c] || 'sightseeing')
     )]
@@ -231,15 +223,9 @@ export default function HomePage({ user }) {
 
     try {
       setLoading(true)
-
-      // Step 1: Create trip
       const createdTrip = await api.createTrip(tripPayload)
       const tripId = createdTrip.id
-
-      // Step 2: Generate itinerary
       await api.generateItinerary(tripId)
-
-      // Step 3: Navigate to itinerary page
       navigate(`/itinerary?tripId=${tripId}`)
     } catch (err) {
       console.error('Trip creation failed:', err)
@@ -256,7 +242,7 @@ export default function HomePage({ user }) {
 
   return (
     <>
-      {/* ════ HERO SCROLL SECTION ════ */}
+      {}
       <section ref={heroRef} style={{ height: SCROLL_HEIGHT, position: 'relative' }}>
         <div style={{
           position: 'sticky', top: 0, height: '100vh',
@@ -344,8 +330,8 @@ export default function HomePage({ user }) {
         </div>
       </section>
 
-      {/* ════ AI PROMPT SECTION ════ */}
-      <section style={{
+      {}
+      <section id="planner" style={{
         minHeight: '100vh', padding: '80px 40px',
         position: 'relative', zIndex: 30,
         background: '#F4F4F4',
@@ -371,7 +357,7 @@ export default function HomePage({ user }) {
             }} />
 
             <div style={{ position: 'relative', zIndex: 2 }}>
-              {/* Header */}
+              {}
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 28 }}>
                 <div style={{
                   width: 48, height: 48, borderRadius: '50%',
@@ -393,7 +379,7 @@ export default function HomePage({ user }) {
                 </div>
               </div>
 
-              {/* Error Banner */}
+              {}
               {error && (
                 <div style={{
                   marginBottom: 18, padding: '14px 18px', borderRadius: 12,
@@ -406,7 +392,7 @@ export default function HomePage({ user }) {
                 </div>
               )}
 
-              {/* Textarea */}
+              {}
               {!showForm && (
                 <div style={{
                   display: 'flex', flexDirection: 'column',
@@ -424,7 +410,7 @@ export default function HomePage({ user }) {
                 </div>
               )}
 
-              {/* ── Trip Details Form ── */}
+              {}
               {showForm && (
                 <form onSubmit={handleSubmit}>
                   <div style={{ marginBottom: 16 }}>
@@ -541,7 +527,7 @@ export default function HomePage({ user }) {
                     </div>
                   </div>
 
-                  {/* Interests from chips */}
+                  {}
                   <div style={{ marginBottom: 24 }}>
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--on-surface-variant)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
                       Interests (choose any)
@@ -617,7 +603,7 @@ export default function HomePage({ user }) {
         </div>
       </section>
 
-      {/* ════ FEATURES SECTION ════ */}
+      {}
       <section style={{ padding: '80px 40px', background: 'var(--surface)', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: '10%', left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none' }}>
           <AshokaChakra size={600} opacity={0.03} />
@@ -649,7 +635,7 @@ export default function HomePage({ user }) {
         </div>
       </section>
 
-      {/* ════ HOW IT WORKS ════ */}
+      {}
       <section style={{ padding: '80px 40px', background: '#F4F4F4' }}>
         <div style={{ maxWidth: 1000, margin: '0 auto' }}>
           <div style={{ textAlign: 'center', marginBottom: 56 }}>
@@ -699,7 +685,7 @@ export default function HomePage({ user }) {
         </div>
       </section>
 
-      {/* ════ PARTNERS STRIP ════ */}
+      {}
       <section style={{
         padding: '48px 40px',
         background: 'var(--surface)',

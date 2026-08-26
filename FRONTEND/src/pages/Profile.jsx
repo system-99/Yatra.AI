@@ -69,10 +69,10 @@ export default function ProfilePage({ user }) {
           display: 'grid', gridTemplateColumns: '280px 1fr', gap: 28,
         }}>
 
-          {/* ── Sidebar ── */}
+          {}
           <aside>
             <div className="neo-raised" style={{ borderRadius: 20, padding: '28px 20px', position: 'sticky', top: 96 }}>
-              {/* Avatar */}
+              {}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 28 }}>
                 <div className="neo-inset" style={{
                   width: 100, height: 100, borderRadius: '50%', padding: 4, marginBottom: 14,
@@ -83,7 +83,7 @@ export default function ProfilePage({ user }) {
                     alt="Profile"
                     style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
                   />
-                  {/* Flag gradient ring */}
+                  {}
                   <div style={{
                     position: 'absolute', inset: 0, borderRadius: '50%',
                     padding: 3,
@@ -142,7 +142,7 @@ export default function ProfilePage({ user }) {
                 </div>
               </div>
 
-              {/* Nav */}
+              {}
               <nav style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {NAV_ITEMS.map((item, i) => (
                   <button key={i} onClick={() => setActiveNav(i)} style={{
@@ -165,10 +165,10 @@ export default function ProfilePage({ user }) {
             </div>
           </aside>
 
-          {/* ── Main canvas ── */}
+          {}
           <section style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
-            {/* Travel DNA header card */}
+            {}
             <div className="glass-panel flag-border" style={{ borderRadius: 20, padding: '36px 36px', position: 'relative', overflow: 'hidden' }}>
               <div style={{ position: 'absolute', top: -60, right: -60, width: 200, height: 200, background: 'rgba(255,153,51,0.08)', borderRadius: '50%', filter: 'blur(40px)' }} />
               <div style={{ position: 'relative', zIndex: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
@@ -186,7 +186,7 @@ export default function ProfilePage({ user }) {
                 </div>
               </div>
 
-              {/* Archetypes */}
+              {}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 18, marginTop: 28 }}>
                 {[
                   { icon: 'account_balance', color: '#FF9933', title: 'Luxury Heritage', desc: 'Prefers premium stays with deep historical significance.' },
@@ -202,7 +202,7 @@ export default function ProfilePage({ user }) {
                   </div>
                 ))}
 
-                {/* Rhythm analysis */}
+                {}
                 <div className="neo-inset" style={{ borderRadius: 14, padding: '20px' }}>
                   <h4 style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, fontWeight: 700, color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 18 }}>Rhythm Analysis</h4>
                   {[
@@ -223,10 +223,10 @@ export default function ProfilePage({ user }) {
               </div>
             </div>
 
-            {/* Bottom row */}
+            {}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
 
-              {/* System Dynamics (toggles) */}
+              {}
               <div className="neo-raised" style={{ borderRadius: 20, padding: '28px' }}>
                 <h2 style={{
                   fontFamily: 'Cormorant Garamond, serif', fontSize: 26, fontWeight: 600,
@@ -244,7 +244,7 @@ export default function ProfilePage({ user }) {
                         <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--on-surface)', marginBottom: 3 }}>{t.label}</div>
                         <div style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>{t.desc}</div>
                       </div>
-                      {/* Toggle */}
+                      {}
                       <button onClick={() => toggle(t.k)} style={{
                         width: 52, height: 28, borderRadius: 999,
                         background: toggles[t.k] ? 'var(--primary-container)' : 'var(--outline-variant)',
@@ -266,7 +266,7 @@ export default function ProfilePage({ user }) {
                 </div>
               </div>
 
-              {/* Past Journeys */}
+              {}
               <div className="glass-panel" style={{ borderRadius: 20, padding: '28px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                   <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: 26, fontWeight: 600, color: 'var(--on-surface)' }}>Past Journeys</h2>
@@ -300,7 +300,7 @@ export default function ProfilePage({ user }) {
               </div>
             </div>
 
-            {/* Save button */}
+            {}
             <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
               {statusMessage && (
                 <span style={{ fontSize: 13, color: '#138808', fontWeight: 600 }}>{statusMessage}</span>
