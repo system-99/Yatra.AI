@@ -66,7 +66,7 @@ export default function AuthPage({ onAuth }) {
 
   return (
     <div style={{ minHeight: 'calc(100vh - 80px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', background: '#f4f4f4' }}>
-      <div className="glass-panel flag-border" style={{ width: '100%', maxWidth: 480, borderRadius: 24, padding: 28 }}>
+      <div className="neo-raised" style={{ width: '100%', maxWidth: 480, borderRadius: 24, padding: 36 }}>
         <div style={{ marginBottom: 24, textAlign: 'center' }}>
           <div style={{ fontSize: 12, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#8f4e00', fontWeight: 700 }}>YATRA.AI</div>
           <h1 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: 42, color: '#8f4e00', marginTop: 6 }}>

@@ -11,5 +11,10 @@ export const supabase = createClient(supabaseUrl || 'https://placeholder.supabas
 
 export function userForApp(user) {
   if (!user) return null
-  return { id: user.id, email: user.email || '', name: user.user_metadata?.name || user.user_metadata?.full_name || user.email || 'Traveler' }
+  return { 
+    id: user.id, 
+    email: user.email || '', 
+    name: user.user_metadata?.name || user.user_metadata?.full_name || user.email || 'Traveler',
+    avatar_url: user.user_metadata?.avatar_url || ''
+  }
 }

@@ -380,3 +380,16 @@ body {
 .alert-saffron { border-left: 4px solid var(--saffron); }
 .alert-green   { border-left: 4px solid var(--india-green); }
 .alert-blue    { border-left: 4px solid var(--navy); }
+
+/* ── Replan Change Highlight Animations ── */
+@keyframes changeGlow {
+  0%   { box-shadow: inset 5px 5px 10px #d0d0d0, inset -5px -5px 10px #ffffff, 0 0 20px rgba(19,136,8,0.25); }
+  40%  { box-shadow: inset 5px 5px 10px #d0d0d0, inset -5px -5px 10px #ffffff, 0 0 8px rgba(19,136,8,0.1); }
+  100% { box-shadow: inset 5px 5px 10px #d0d0d0, inset -5px -5px 10px #ffffff; }
+}
+
+@keyframes badgeFadeIn {
+  0%   { opacity: 0; transform: scale(0.7) translateX(-8px); }
+  60%  { opacity: 1; transform: scale(1.08) translateX(0); }
+  100% { opacity: 1; transform: scale(1) translateX(0); }
+}

@@ -353,10 +353,31 @@ async def replan_trip(trip_id: int, request: DisruptionRequest, current_user: di
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
+    # Build a lookup of original activities per day for change detection
+    old_days_map = {}
+    for old_day in trip.get("days", []):
+        day_num = old_day.get("day_number")
+        old_acts = old_day.get("activities", [])
+        old_titles = [a.get("title", "").strip().lower() for a in old_acts]
+        old_details = []
+        for a in old_acts:
+            old_details.append({
+                "title": a.get("title", "").strip().lower(),
+                "time_slot": a.get("time_slot", "").strip().lower(),
+                "location": a.get("location", "").strip().lower(),
+                "category": a.get("category", "").strip().lower(),
+            })
+        old_days_map[day_num] = {"titles": old_titles, "details": old_details}
+
     new_days = []
     activity_id = 1
     total_cost = 0
     for day in replan_result.get("days", []):
+        day_num = day.get("day")
+        old_info = old_days_map.get(day_num, {"titles": [], "details": []})
+        old_titles = old_info["titles"]
+        old_details = old_info["details"]
+
         activities = []
         for act in day.get("activities", []):
             if isinstance(act, str):
@@ -368,13 +389,31 @@ async def replan_trip(trip_id: int, request: DisruptionRequest, current_user: di
                     "description": act,
                     "time_slot": "Daytime",
                     "estimated_cost": 0,
-                    "is_weather_sensitive": True
+                    "is_weather_sensitive": True,
+                    "status": "replaced"
                 }
             else:
                 cost = act.get("estimated_cost", 0)
                 if isinstance(cost, str):
                     cost = int("".join(filter(str.isdigit, cost)) or "0")
                 total_cost += cost
+
+                new_title = act.get("title", "Activity").strip().lower()
+                new_detail = {
+                    "title": new_title,
+                    "time_slot": act.get("time_slot", "Daytime").strip().lower(),
+                    "location": act.get("location", trip["destination"]).strip().lower(),
+                    "category": act.get("category", "sightseeing").strip().lower(),
+                }
+
+                # Determine change status
+                if new_title not in old_titles:
+                    status = "replaced"
+                elif new_detail not in old_details:
+                    status = "adjusted"
+                else:
+                    status = None
+
                 act_obj = {
                     "id": activity_id,
                     "title": act.get("title", "Activity"),
@@ -385,12 +424,15 @@ async def replan_trip(trip_id: int, request: DisruptionRequest, current_user: di
                     "estimated_cost": cost,
                     "is_weather_sensitive": act.get("is_weather_sensitive", True)
                 }
+                if status:
+                    act_obj["status"] = status
             activities.append(act_obj)
             activity_id += 1
 
         new_days.append({
             "day_number": day.get("day"),
             "date": day.get("date"),
+            "theme": day.get("theme"),
             "weather": day.get("weather"),
             "indoor_backup": day.get("indoor_backup"),
             "warnings": day.get("warnings", []),

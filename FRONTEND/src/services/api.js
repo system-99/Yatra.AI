@@ -81,7 +81,7 @@ export const api = {
     return handleResponse(response);
   },
   async listTrips() {
-    const response = await fetch(`${API_BASE_URL}/api/trips/`, { headers: authHeaders() });
+    const response = await fetch(`${API_BASE_URL}/api/trips`, { headers: authHeaders() });
     return handleResponse(response);
   },
   async deleteTrip(tripId) {

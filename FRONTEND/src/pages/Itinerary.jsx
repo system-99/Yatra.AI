@@ -671,14 +671,35 @@ function ActivityRow({ act }) {
   const isReplaced = act.status === 'replaced'
   const isAdjusted = act.status === 'adjusted'
   const isCancelled = act.status === 'cancelled'
+  const isChanged = isReplaced || isAdjusted
+
+  const changeBorderColor = isReplaced ? '#138808' : isAdjusted ? '#FF9933' : undefined
+  const changeBgColor = isReplaced
+    ? 'rgba(19, 136, 8, 0.04)'
+    : isAdjusted
+    ? 'rgba(255, 153, 51, 0.04)'
+    : undefined
 
   return (
     <div className="neo-inset" style={{
       borderRadius: 10, padding: '14px',
       display: 'flex', alignItems: 'center', gap: 14,
       opacity: isCancelled ? 0.45 : 1,
-      borderLeft: isReplaced ? '4px solid #138808' : isAdjusted ? '4px solid #FF9933' : undefined,
+      borderLeft: isChanged ? `4px solid ${changeBorderColor}` : undefined,
+      background: changeBgColor,
+      position: 'relative',
+      overflow: 'hidden',
+      transition: 'all 0.4s ease',
+      animation: isChanged ? 'changeGlow 2.5s ease-in-out' : undefined,
     }}>
+      {/* Animated highlight stripe for changed activities */}
+      {isChanged && (
+        <div style={{
+          position: 'absolute', top: 0, left: 0, bottom: 0, width: 4,
+          background: changeBorderColor,
+          boxShadow: `0 0 12px ${changeBorderColor}60, 0 0 4px ${changeBorderColor}40`,
+        }} />
+      )}
       <div style={{
         width: 36, height: 36, borderRadius: 8, flexShrink: 0,
         background: `${color}18`,
@@ -689,14 +710,36 @@ function ActivityRow({ act }) {
       </div>
       <div style={{ flex: 1 }}>
         <div style={{
-          fontWeight: 600, fontSize: 14, color: 'var(--on-surface)',
+          fontWeight: 600, fontSize: 14,
+          color: isReplaced ? '#138808' : isAdjusted ? '#b8700a' : 'var(--on-surface)',
           textDecoration: isCancelled ? 'line-through' : 'none',
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
           {act.title}
-          {(isReplaced || isAdjusted) && (
-            <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: isReplaced ? 'rgba(19,136,8,0.1)' : 'rgba(255,153,51,0.1)', color: isReplaced ? '#138808' : '#FF9933', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>
-              {isReplaced ? 'REPLACED' : 'ADJUSTED'}
+          {isReplaced && (
+            <span style={{
+              fontSize: 10, padding: '2px 10px', borderRadius: 999,
+              background: 'rgba(19,136,8,0.12)', color: '#138808',
+              fontFamily: 'JetBrains Mono, monospace', fontWeight: 700,
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              border: '1px solid rgba(19,136,8,0.25)',
+              animation: 'badgeFadeIn 0.6s ease-out',
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 12 }}>auto_awesome</span>
+              NEW
+            </span>
+          )}
+          {isAdjusted && (
+            <span style={{
+              fontSize: 10, padding: '2px 10px', borderRadius: 999,
+              background: 'rgba(255,153,51,0.12)', color: '#b8700a',
+              fontFamily: 'JetBrains Mono, monospace', fontWeight: 700,
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              border: '1px solid rgba(255,153,51,0.25)',
+              animation: 'badgeFadeIn 0.6s ease-out',
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 12 }}>tune</span>
+              ADJUSTED
             </span>
           )}
         </div>
