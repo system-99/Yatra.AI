@@ -230,7 +230,7 @@ export default function HomePage({ user }) {
     } catch (err) {
       console.error('Trip creation failed:', err)
       if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        setError('Cannot connect to the server. Please make sure the backend is running.')
+        setError(`Cannot reach the backend at ${import.meta.env.VITE_API_URL || 'https://yatraaibackend.vercel.app'}. Check the Vercel API URL and CORS settings.`)
       } else {
         setError(err.message || 'Something went wrong. Please try again.')
       }

@@ -1,4 +1,9 @@
-export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+// Vercel builds can be redeployed without re-entering env variables. Keep a
+// production fallback so the hosted app never accidentally calls localhost.
+const defaultApiUrl = import.meta.env.PROD
+  ? 'https://yatraaibackend.vercel.app'
+  : 'http://localhost:8000'
+export const API_BASE_URL = (import.meta.env.VITE_API_URL || defaultApiUrl).replace(/\/$/, '')
 
 export const getStoredAuth = () => {
   try {
