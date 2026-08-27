@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Footer } from '../components/Layout'
 import api, { getStoredAuth, saveAuth } from '../services/api'
 import { supabase, userForApp } from '../auth/supabase'
+import { uploadAvatar } from '../auth/profileStorage'
 
 const JOURNEYS = [
   { icon: 'temple_hindu', color: '#FF9933', title: 'Rajasthan Royal Tour',     meta: 'OCT 2023 • 14 DAYS' },
@@ -98,8 +99,17 @@ export default function ProfilePage({ user }) {
         canvas.height = height
         const ctx = canvas.getContext('2d')
         ctx.drawImage(img, 0, 0, width, height)
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
-        setProfileForm(prev => ({ ...prev, avatar_url: dataUrl }))
+        canvas.toBlob(async (blob) => {
+          try {
+            const { data: { user: authUser } } = await supabase.auth.getUser()
+            if (!authUser || !blob) throw new Error('You must be signed in to upload a profile picture.')
+            const avatarUrl = await uploadAvatar(authUser.id, blob)
+            setProfileForm(prev => ({ ...prev, avatar_url: avatarUrl }))
+            setStatusMessage('Profile picture uploaded. Click Update Profile to save it.')
+          } catch (err) {
+            setStatusMessage(`Image upload failed: ${err.message}`)
+          }
+        }, 'image/jpeg', 0.8)
       }
       img.src = event.target.result
     }
