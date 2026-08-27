@@ -14,11 +14,11 @@ from supabase import Client, create_client
 def _service_client() -> Client:
     """Return a Supabase client authenticated with the **service-role** key."""
     url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
     if not url or not key:
         raise RuntimeError(
             "Supabase is not configured for DB access. "
-            "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in backend/.env"
+            "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_KEY) in backend/.env"
         )
     return create_client(url, key)
 

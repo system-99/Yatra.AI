@@ -1,9 +1,8 @@
 from pathlib import Path
 import os
-
-from dotenv import load_dotenv
 import datetime
 import json
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -65,7 +64,10 @@ class WeatherCheckRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "database": "supabase"
+    }
 
 
 @app.get("/api/auth/me")
@@ -99,12 +101,12 @@ def route(request: RouteRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.get("/api/trips/")
+@app.get("/api/trips")
 def list_trips(current_user: dict = Depends(get_current_user)):
     return db_list_user_trips(current_user["id"])
 
 
-@app.post("/api/trips/")
+@app.post("/api/trips")
 def create_trip(request: TripRequest, current_user: dict = Depends(get_current_user)):
     trip_data = request.model_dump()
     return db_create_trip(current_user["id"], trip_data)
@@ -115,7 +117,9 @@ def delete_trip(trip_id: int, current_user: dict = Depends(get_current_user)):
     trip = db_get_trip(trip_id)
     if not trip or trip["user_id"] != current_user["id"]:
         raise HTTPException(status_code=404, detail="Trip not found")
-    db_delete_trip(trip_id)
+    success = db_delete_trip(trip_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete trip")
     return {"status": "deleted", "id": trip_id}
 
 
@@ -134,6 +138,7 @@ def generate_trip(trip_id: int, current_user: dict = Depends(get_current_user)):
         message = str(exc)
         status = 429 if "RESOURCE_EXHAUSTED" in message or "quota" in message.lower() else 502
         raise HTTPException(status_code=status, detail=message) from exc
+
     days = []
     activity_id = 1
     total_cost = 0
@@ -198,17 +203,6 @@ def get_trip(trip_id: int, current_user: dict = Depends(get_current_user)):
     return trip
 
 
-@app.delete("/api/trips/{trip_id}")
-def delete_trip(trip_id: int, current_user: dict = Depends(get_current_user)):
-    trip = db_get_trip(trip_id)
-    if not trip or trip["user_id"] != current_user["id"]:
-        raise HTTPException(status_code=404, detail="Trip not found")
-    success = db_delete_trip(trip_id)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to delete trip")
-    return {"message": "Trip deleted successfully"}
-
-
 @app.get("/api/trips/{trip_id}/geocoded-days")
 def get_geocoded_days(trip_id: int, current_user: dict = Depends(get_current_user)):
     trip = db_get_trip(trip_id)
@@ -270,7 +264,10 @@ def get_itinerary(trip_id: int, current_user: dict = Depends(get_current_user)):
     trip = db_get_trip(trip_id)
     if not trip or trip["user_id"] != current_user["id"]:
         raise HTTPException(status_code=404, detail="Trip not found")
-    return {"id": trip["id"], "destination": trip["destination"], "days": trip["days"]}
+    return {"id": trip["id"], "destination": trip["destination"], "days": trip.get("days", [])}
+
+
+# Active WebSocket connections
 active_connections: dict[int, list[WebSocket]] = {}
 
 @app.websocket("/ws/trips/{trip_id}")
@@ -443,6 +440,7 @@ async def check_weather(trip_id: int, request: WeatherCheckRequest, current_user
         try:
             weather = fetch_weather_forecast(trip["destination"], days=len(trip.get("days", [])))
             db_update_trip(trip_id, {"weather_forecast": weather})
+            trip["weather_forecast"] = weather
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Failed to fetch weather: {exc}")
 
